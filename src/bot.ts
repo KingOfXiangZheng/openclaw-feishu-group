@@ -984,17 +984,22 @@ export async function handleFeishuMessage(params: {
             `feishu[${account.accountId}]: message in group ${ctx.chatId} skipped (mention required)`,
           );
           if (chatHistories) {
-            recordPendingHistoryEntryIfEnabled({
-              historyMap: chatHistories,
-              historyKey: ctx.chatId,
-              limit: historyLimit,
-              entry: {
-                sender: ctx.senderName ?? ctx.senderOpenId,
-                body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.content}`,
-                timestamp: Date.now(),
-                messageId: ctx.messageId,
-              },
-            });
+            // Avoid duplicate entries when multiple bots skip the same message
+            const existingEntries = chatHistories.get(ctx.chatId) ?? [];
+            const alreadyRecorded = existingEntries.some(e => e.messageId === ctx.messageId);
+            if (!alreadyRecorded) {
+              recordPendingHistoryEntryIfEnabled({
+                historyMap: chatHistories,
+                historyKey: ctx.chatId,
+                limit: historyLimit,
+                entry: {
+                  sender: ctx.senderName ?? ctx.senderOpenId,
+                  body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.content}`,
+                  timestamp: Date.now(),
+                  messageId: ctx.messageId,
+                },
+              });
+            }
           }
           return;
         }
@@ -1222,17 +1227,21 @@ export async function handleFeishuMessage(params: {
       const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
       if (sharedEntries.length > 0) {
         const existing = chatHistories.get(historyKey) ?? [];
+        // Collect existing messageIds to avoid duplicates when merging shared history
+        const existingIds = new Set(existing.map(e => e.messageId).filter(Boolean));
         const merged = [
-          ...sharedEntries.map(e => {
-            const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
-            const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
-            return {
-              sender: name,
-              body: `${prefix} ${name}: ${e.body}`,
-              timestamp: e.timestamp,
-              messageId: e.messageId,
-            };
-          }),
+          ...sharedEntries
+            .filter(e => !existingIds.has(e.messageId))
+            .map(e => {
+              const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
+              const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
+              return {
+                sender: name,
+                body: `${prefix} ${name}: ${e.body}`,
+                timestamp: e.timestamp,
+                messageId: e.messageId,
+              };
+            }),
           ...existing,
         ].sort((a, b) => a.timestamp - b.timestamp);
         chatHistories.set(historyKey, merged);

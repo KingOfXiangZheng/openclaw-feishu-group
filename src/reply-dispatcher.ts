@@ -201,7 +201,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
         // Record bot reply to shared history (for cross-bot context)
         // Only record for group chats (chatId starts with "oc_")
-        if (chatId.startsWith("oc_")) {
+        // Only record on "final" delivery to avoid duplicates from block+final calls
+        if (chatId.startsWith("oc_") && (!info?.kind || info.kind === "final")) {
           const botName = account.name ?? accountId;
 
           recordBotReply({
