@@ -99,9 +99,11 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
     return "";
   }
 
-  const teammateList = teammates.map(bot => 
-    `${bot.name}（${bot.specialty ?? "通用"}）`
-  ).join("、");
+  const teammateList = teammates
+      .map(bot =>
+          `${bot.name}（${bot.specialty ?? "通用"}） <!-- ${bot.name}: <at user_id="${bot.openId}">${bot.name}</at> -->`
+      )
+      .join("\n");
 
   const lines = [
     "",
