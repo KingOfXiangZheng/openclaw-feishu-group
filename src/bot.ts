@@ -1218,7 +1218,7 @@ export async function handleFeishuMessage(params: {
 
     // Inject incremental shared history (only new messages from other bots since last seen)
     if (isGroup && ctx.chatId) {
-      const sharedHistory = buildIncrementalSharedHistoryContext(ctx.chatId, account.accountId, historyLimit);
+      const sharedHistory = buildIncrementalSharedHistoryContext(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
       if (sharedHistory) {
         combinedBody = sharedHistory + "\n" + combinedBody;
       }

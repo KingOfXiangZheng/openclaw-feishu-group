@@ -225,6 +225,7 @@ export function buildIncrementalSharedHistoryContext(
   chatId: string,
   botAccountId: string,
   limit: number = MAX_HISTORY_ENTRIES,
+  excludeMessageId?: string,
 ): string {
   const map = loadLastSeen();
   const since = map[lastSeenKey(chatId, botAccountId)] ?? 0;
@@ -236,6 +237,8 @@ export function buildIncrementalSharedHistoryContext(
   // and only from OTHER participants (exclude this bot's own messages by accountId and sender)
   const incremental = entries.filter(e => {
     if (e.timestamp <= since) return false;
+    // Exclude the current message being processed (already in envelope body)
+    if (excludeMessageId && e.messageId === excludeMessageId) return false;
     // Exclude bot's own replies
     if (e.botAccountId === botAccountId) return false;
     // Exclude synthetic sender format "bot_<accountId>"
