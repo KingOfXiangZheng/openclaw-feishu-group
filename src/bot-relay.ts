@@ -91,7 +91,6 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
   const teammates = Array.from(botRegistry.values())
     .filter(bot => {
       if (bot.accountId === excludeAccountId) return false;
-      // If we have group presence data, only include bots seen in this group
       if (presentAccountIds) return presentAccountIds.has(bot.accountId);
       return true;
     });
@@ -102,25 +101,20 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
 
   const lines = [
     "",
-    "## 🤝 群内可用的 AI 队友",
+    "[System: 以下是群内可协作的 AI 队友信息，仅供你在需要时参考。]",
     "",
-    "你可以 @mention 以下队友来协作：",
-    "",
-    "| 队友 | 专长 | @mention 格式 |",
-    "|------|------|---------------|",
   ];
 
   for (const bot of teammates) {
-    const mentionFormat = `\`<at user_id="${bot.openId}">${bot.name}</at>\``;
-    lines.push(`| **${bot.name}** | ${bot.specialty ?? "通用"} | ${mentionFormat} |`);
+    lines.push(`- ${bot.name}（${bot.specialty ?? "通用"}）: <at user_id="${bot.openId}">${bot.name}</at>`);
   }
 
   lines.push("");
-  lines.push("### 如何正确 @mention");
-  lines.push("");
-  lines.push("在你的回复中直接写入 `<at user_id=\"...\">名字</at>` 格式。");
-  lines.push("");
-  lines.push("⚠️ 必须使用 `<at user_id=\"...\">` 格式，纯文本 `@名字` 不会触发队友。");
+  lines.push("[规则]");
+  lines.push("- 只在你确实无法独立完成、且该任务明确属于某位队友专长时，才 @mention 队友。");
+  lines.push("- 不要为了展示队友列表或礼貌性介绍而 @mention，这会触发对方执行任务。");
+  lines.push("- 必须使用 <at user_id=\"...\">名字</at> 格式，纯文本 @名字 无效。");
+  lines.push("- 如果用户没有要求协作，不要主动 @mention 任何队友。");
   lines.push("");
 
   return lines.join("\n");
