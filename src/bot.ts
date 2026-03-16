@@ -989,7 +989,7 @@ export async function handleFeishuMessage(params: {
               historyKey: ctx.chatId,
               limit: historyLimit,
               entry: {
-                sender: ctx.senderOpenId,
+                sender: ctx.senderName ?? ctx.senderOpenId,
                 body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.content}`,
                 timestamp: Date.now(),
                 messageId: ctx.messageId,
@@ -1227,7 +1227,7 @@ export async function handleFeishuMessage(params: {
             const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
             const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
             return {
-              sender: e.sender,
+              sender: name,
               body: `${prefix} ${name}: ${e.body}`,
               timestamp: e.timestamp,
               messageId: e.messageId,
