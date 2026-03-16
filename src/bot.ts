@@ -711,6 +711,17 @@ export function parseFeishuMessageEvent(
     (event.message.mentions?.length ?? 0) > 0 || (parsedPost?.mentionIds.length ?? 0) > 0;
   const content = stripBotMention(rawContent, event.message.mentions);
 
+  // Build a human-readable version of rawContent with mention placeholders replaced by names
+  let readableRawContent = rawContent;
+  for (const m of event.message.mentions ?? []) {
+    if (m.key && m.name) {
+      readableRawContent = readableRawContent.replace(
+        new RegExp(m.key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+        `@${m.name}`,
+      );
+    }
+  }
+
   const ctx: FeishuMessageContext = {
     chatId: event.message.chat_id,
     messageId: event.message.message_id,
@@ -721,7 +732,7 @@ export function parseFeishuMessageEvent(
     rootId: event.message.root_id || undefined,
     parentId: event.message.parent_id || undefined,
     content,
-    rawContent,
+    rawContent: readableRawContent,
     contentType: event.message.message_type,
     hasAnyMention,
   };
