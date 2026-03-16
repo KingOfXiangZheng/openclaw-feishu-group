@@ -114,7 +114,7 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
   lines.push("- 只在你确实无法独立完成、且该任务明确属于某位队友专长时，才 @mention 队友。");
   lines.push("- 不要为了展示队友列表或礼貌性介绍而 @mention，这会触发对方执行任务。");
   lines.push("- 必须使用 <at user_id=\"...\">名字</at> 格式，纯文本 @名字 无效。");
-  lines.push("- 如果用户没有要求协作，不要主动 @mention 任何队友。");
+  //lines.push("- 如果用户没有要求协作，不要主动 @mention 任何队友。");
   lines.push("");
 
   return lines.join("\n");
