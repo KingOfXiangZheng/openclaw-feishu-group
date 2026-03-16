@@ -1229,6 +1229,12 @@ export async function handleFeishuMessage(params: {
     // Inject cross-bot shared history entries into chatHistories
     // so they appear inside [Chat messages since your last reply].
     if (isGroup && historyKey && chatHistories) {
+      // For synthetic events (bot-to-bot relay), clear stale pending history entries
+      // to avoid showing messages the bot already processed in a previous turn.
+      if (isSyntheticEvent) {
+        chatHistories.delete(historyKey);
+      }
+
       const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
       if (sharedEntries.length > 0) {
         const existing = chatHistories.get(historyKey) ?? [];
