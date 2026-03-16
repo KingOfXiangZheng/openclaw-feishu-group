@@ -794,6 +794,7 @@ export async function handleFeishuMessage(params: {
   // Check if this is a synthetic event from bot-to-bot relay
   const isSyntheticEvent = (event as any)._synthetic === true;
   const syntheticSourceBot = (event as any)._sourceBotName as string | undefined;
+  const syntheticSourceAccountId = (event as any)._sourceBot as string | undefined;
 
   // Resolve sender display name (best-effort) so the agent can attribute messages correctly.
   const senderResult = await resolveFeishuSenderName({
@@ -1242,8 +1243,16 @@ export async function handleFeishuMessage(params: {
         chatHistories.delete(historyKey);
       }
 
-      const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
+      let sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
       const lastSeen = getLastSeenTimestamp(ctx.chatId, account.accountId);
+
+      // For synthetic events, exclude the source bot's latest reply from shared history
+      // because it IS the current message — showing it in history would be a duplicate.
+      if (isSyntheticEvent && syntheticSourceAccountId) {
+        sharedEntries = sharedEntries.filter(e =>
+          !(e.botAccountId === syntheticSourceAccountId || e.sender === syntheticSourceAccountId)
+        );
+      }
 
       // Build a temporary history map that merges shared history entries with pending history.
       // We do NOT persist shared entries into chatHistories — they are controlled by
