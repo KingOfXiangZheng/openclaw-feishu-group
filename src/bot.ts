@@ -1348,6 +1348,8 @@ export async function handleFeishuMessage(params: {
       replyToMessageId: isSyntheticEvent ? undefined : ctx.messageId,
       mentionTargets: ctx.mentionTargets,
       accountId: account.accountId,
+      // Skip relay for synthetic events to prevent bot-to-bot relay loops
+      skipRelay: isSyntheticEvent,
     });
 
     log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);

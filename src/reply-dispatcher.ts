@@ -33,11 +33,13 @@ export type CreateFeishuReplyDispatcherParams = {
   replyToMessageId?: string;
   mentionTargets?: MentionTarget[];
   accountId?: string;
+  /** Skip bot-to-bot relay triggering (used for synthetic events to prevent loops) */
+  skipRelay?: boolean;
 };
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
   const core = getFeishuRuntime();
-  const { cfg, agentId, chatId, replyToMessageId, mentionTargets, accountId } = params;
+  const { cfg, agentId, chatId, replyToMessageId, mentionTargets, accountId, skipRelay } = params;
   const account = resolveFeishuAccount({ cfg, accountId });
   const prefixContext = createReplyPrefixContext({ cfg, agentId });
 
@@ -233,9 +235,11 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           // triggerBotRelay fans out to mentioned bots and waits for their replies (gather).
           // After gather completes, the collected replies are sent back as a synthetic
           // message to this bot so it can produce a summary.
-          void (async () => {
-            try {
-              const replies = await triggerBotRelay({
+          // Skip relay when handling synthetic events to prevent loops.
+          if (!skipRelay) {
+            void (async () => {
+              try {
+                const replies = await triggerBotRelay({
                 sourceAccountId: accountId,
                 sourceBotName: botName,
                 chatId,
@@ -284,6 +288,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
               params.runtime.error?.(`feishu[${account.accountId}] gather relay failed: ${String(err)}`);
             }
           })();
+          }
         }
       },
       onError: async (error, info) => {
