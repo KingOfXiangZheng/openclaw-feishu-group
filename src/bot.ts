@@ -1236,9 +1236,13 @@ export async function handleFeishuMessage(params: {
       }
 
       const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
+
+      // Build a temporary history map that merges shared history entries with pending history.
+      // We do NOT persist shared entries into chatHistories — they are controlled by
+      // markSharedHistorySeen and must not linger across turns.
+      const tempHistoryMap = new Map(chatHistories);
       if (sharedEntries.length > 0) {
-        const existing = chatHistories.get(historyKey) ?? [];
-        // Collect existing messageIds to avoid duplicates when merging shared history
+        const existing = tempHistoryMap.get(historyKey) ?? [];
         const existingIds = new Set(existing.map(e => e.messageId).filter(Boolean));
         const merged = [
           ...sharedEntries
@@ -1258,11 +1262,11 @@ export async function handleFeishuMessage(params: {
             }),
           ...existing,
         ].sort((a, b) => a.timestamp - b.timestamp);
-        chatHistories.set(historyKey, merged);
+        tempHistoryMap.set(historyKey, merged);
       }
 
       combinedBody = buildPendingHistoryContextFromMap({
-        historyMap: chatHistories,
+        historyMap: tempHistoryMap,
         historyKey,
         limit: historyLimit,
         currentMessage: combinedBody,
