@@ -117,8 +117,7 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
     "   - 或任务客观上超出你的能力范围，且明确属于某队友专长",
     "3. 禁止以下行为：",
     "   - 禁止为介绍队友而 @mention",
-    "   - 禁止为\"礼貌性通知\"而 @mention", 
-    "   - 禁止在用户未要求协作时主动 @mention",
+    "   - 禁止为\"礼貌性通知\"而 @mention",
     "4. @mention 格式：<at user_id=\"openId\">名字</at>",
     "",
   ];
