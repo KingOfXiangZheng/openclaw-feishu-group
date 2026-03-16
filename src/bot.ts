@@ -798,8 +798,6 @@ export async function handleFeishuMessage(params: {
   const isSyntheticEvent = (event as any)._synthetic === true;
   const syntheticSourceBot = (event as any)._sourceBotName as string | undefined;
   const syntheticSourceAccountId = (event as any)._sourceBot as string | undefined;
-  // Check if this is a gather summary event (should not trigger further relay to prevent loops)
-  const isGatherEvent = syntheticSourceBot === "gather" || syntheticSourceAccountId === "gather";
 
   // Resolve sender display name (best-effort) so the agent can attribute messages correctly.
   const senderResult = await resolveFeishuSenderName({
@@ -1349,7 +1347,6 @@ export async function handleFeishuMessage(params: {
       replyToMessageId: isSyntheticEvent ? undefined : ctx.messageId,
       mentionTargets: ctx.mentionTargets,
       accountId: account.accountId,
-      skipRelay: isGatherEvent,
     });
 
     log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
