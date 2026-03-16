@@ -101,7 +101,7 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
 
   const teammateList = teammates
       .map(bot =>
-          `${bot.name}（${bot.specialty ?? "通用"}） <!-- ${bot.name}: <at user_id="${bot.openId}">${bot.name}</at> -->`
+          `${bot.name}（${bot.specialty ?? "通用"}） <at user_id="${bot.openId}">${bot.name}</at>`
       )
       .join("\n");
 
@@ -125,7 +125,7 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
   ];
 
   for (const bot of teammates) {
-    lines.push(`<!-- ${bot.name}: <at user_id="${bot.openId}">${bot.name}</at> -->`);
+    lines.push(`若要联系${bot.name}请按照输出： <at user_id="${bot.openId}">${bot.name}</at>`);
   }
   lines.push("！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
   lines.push("！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
