@@ -721,6 +721,7 @@ export function parseFeishuMessageEvent(
     rootId: event.message.root_id || undefined,
     parentId: event.message.parent_id || undefined,
     content,
+    rawContent,
     contentType: event.message.message_type,
     hasAnyMention,
   };
@@ -1199,7 +1200,7 @@ export async function handleFeishuMessage(params: {
           messageId: ctx.messageId,
           sender: ctx.senderOpenId,
           senderName: ctx.senderName,
-          body: ctx.content,
+          body: ctx.rawContent,
         });
       }
     }
