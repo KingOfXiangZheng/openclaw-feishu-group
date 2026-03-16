@@ -123,6 +123,7 @@ export const FeishuAccountConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     name: z.string().optional(), // Display name for this account
+    specialty: z.string().optional(), // Bot specialty/role description for teammate discovery
     appId: z.string().optional(),
     appSecret: z.string().optional(),
     encryptKey: z.string().optional(),

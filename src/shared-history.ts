@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { resolveBotDisplayName } from "./bot-relay.js";
 
 export interface SharedHistoryEntry {
   timestamp: number;
@@ -23,15 +24,15 @@ export interface SharedHistoryEntry {
 
 const HISTORY_DIR = path.join(os.homedir(), ".openclaw", "shared-history");
 const MAX_HISTORY_ENTRIES = 50;
-const botNameDict: Record<string, string> = {
-  "cli_a92490cee8b85cc7": "Quinn",
-  "cli_a911b6848cb89cb0": "Alex",
-  "cli_a8f2d86efc22d01c": "Nova",
-  "cli_a8f2dafa39a3101c": "Mia",
-  "cli_a927c63b1578dcb6": "Luma",
-  "cli_a927c0d3a4f89cc2": "Caleb",
-  "ou_f847776208327494ad1de1a70176aae3":"boss(用户)"
-};
+
+/**
+ * Resolve a display name for a sender.
+ * Tries the bot registry first, then falls back to senderName or raw id.
+ */
+function resolveDisplayName(id: string, senderName?: string): string {
+  return resolveBotDisplayName(id) ?? senderName ?? id;
+}
+
 // Ensure directory exists
 function ensureHistoryDir(): void {
   if (!fs.existsSync(HISTORY_DIR)) {
@@ -105,17 +106,13 @@ export function buildSharedHistoryContext(
   
   const lines = filtered.map(e => {
     const name = e.senderName ?? e.sender;
-    const resolvedName = botNameDict[name] ?? name;
+    const resolvedName = resolveDisplayName(e.sender, e.senderName);
     const prefix = e.senderType === "bot"
-        ? `[Bot:${resolvedName ?? "unknown"}]`
+        ? `[Bot:${resolvedName}]`
         : name.startsWith("bot_")
-            ? `[Bot:${botNameDict[name.slice(4)] ?? name}]`
+            ? `[Bot:${resolveDisplayName(name.slice(4), name)}]`
             : "[User]";
-    const resolvedName2 =
-        botNameDict[name] ??
-        (name.startsWith("bot_") ? botNameDict[name.slice(4)] : undefined) ??
-        name;
-    return `${prefix} ${resolvedName2}: ${e.body}`;
+    return `${prefix} ${resolvedName}: ${e.body}`;
   });
   
   return `\n--- Recent Chat History (shared across all bots) ---\n${lines.join("\n")}\n--- End of History ---\n`;
@@ -245,17 +242,13 @@ export function buildIncrementalSharedHistoryContext(
 
   const lines = incremental.map(e => {
     const name = e.senderName ?? e.sender;
-    const resolvedName = botNameDict[name] ?? name;
+    const resolvedName = resolveDisplayName(e.sender, e.senderName);
     const prefix = e.senderType === "bot"
-      ? `[Bot:${resolvedName ?? "unknown"}]`
+      ? `[Bot:${resolvedName}]`
       : name.startsWith("bot_")
-        ? `[Bot:${botNameDict[name.slice(4)] ?? name}]`
+        ? `[Bot:${resolveDisplayName(name.slice(4), name)}]`
         : "[User]";
-    const resolvedName2 =
-      botNameDict[name] ??
-      (name.startsWith("bot_") ? botNameDict[name.slice(4)] : undefined) ??
-      name;
-    return `${prefix} ${resolvedName2}: ${e.body}`;
+    return `${prefix} ${resolvedName}: ${e.body}`;
   });
 
   return `\n--- New messages from other participants ---\n${lines.join("\n")}\n--- End ---\n`;

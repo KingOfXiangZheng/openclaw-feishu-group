@@ -33,7 +33,7 @@ import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
 import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen, shouldInjectTeammatesContext, markTeammatesContextInjected } from "./shared-history.js";
 // Bot-to-Bot relay for teammate discovery
-import { getTeammatesContext } from "./bot-relay.js";
+import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -1183,6 +1183,9 @@ export async function handleFeishuMessage(params: {
 
     // Record user message to shared history (cross-bot)
     if (isGroup && ctx.chatId) {
+      // Mark this bot as present in the group for teammate discovery
+      markBotPresentInGroup(ctx.chatId, account.accountId);
+
       recordUserMessage({
         chatId: ctx.chatId,
         messageId: ctx.messageId,
@@ -1220,7 +1223,7 @@ export async function handleFeishuMessage(params: {
 
     // Inject available teammates info only once per session (or when roster changes)
     if (isGroup) {
-      const teammatesInfo = getTeammatesContext(account.accountId);
+      const teammatesInfo = getTeammatesContext(account.accountId, ctx.chatId);
       if (teammatesInfo && shouldInjectTeammatesContext(ctx.chatId, account.accountId, teammatesInfo)) {
         combinedBody = teammatesInfo + "\n" + combinedBody;
         markTeammatesContextInjected(ctx.chatId, account.accountId, teammatesInfo);

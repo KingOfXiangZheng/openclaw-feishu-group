@@ -12,7 +12,7 @@ import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-s
 import type { FeishuMessageEvent } from "./bot.js";
 import { handleFeishuMessage } from "./bot.js";
 
-// Bot registry: maps bot OpenID to { accountId, name }
+// Bot registry: maps bot OpenID to { accountId, name, specialty }
 interface BotInfo {
   accountId: string;
   openId: string;
@@ -27,63 +27,35 @@ let relayRuntime: RuntimeEnv | null = null;
 // Shared chat histories reference
 let relayChatHistories: Map<string, HistoryEntry[]> | null = null;
 
-// Bot specialty descriptions (can be extended)
-const BOT_SPECIALTIES: Record<string, string> = {
-  "Alex": "产品经理, 产品规划、需求分析、任务分配、架构讨论、跨团队沟通",
-  "Nova": "全栈工程师, iOS (Swift, SwiftUI)、Go 后端开发、API 设计、数据库、系统架构",
-  "Luma": "战略专家, 宏观洞察与执行并重，善于将复杂问题拆解为可落地方案",
-  "Quinn": "私人秘书, 日程管理、会议安排、文书处理、信息协调",
-  "Mia": "自媒体运营专家, 内容策划、品牌推广、社区运营、数据分析，涉及到自媒体相关信息可以找她",
-  "Caleb": "家庭管家, 家务管理、礼宾服务、日程安排、家族事务协调，不要轻易找他，只有涉及到boss家庭信息时才找他"
-};
-
-// Bot display names
-const BOT_DISPLAY_NAMES: Record<string, string> = {
-  "Alex": "产品经理Alex",
-  "Nova": "全栈工程师Nova",
-  "Luma": "战略专家Luma",
-  "Quinn": "私人秘书Quinn",
-  "Mia": "自媒体运营Mia",
-  "Caleb": "家庭管家Caleb"
-};
-
-const botNameDict: Record<string, string> = {
-  "cli_a92490cee8b85cc7": "Quinn",
-  "cli_a911b6848cb89cb0": "Alex",
-  "cli_a8f2d86efc22d01c": "Nova",
-  "cli_a8f2dafa39a3101c": "Mia",
-  "cli_a927c63b1578dcb6": "Luma",
-  "cli_a927c0d3a4f89cc2": "Caleb",
-  "ou_f847776208327494ad1de1a70176aae3":"boss(用户)"
-};
 /**
- * Register a bot for relay (called during monitor startup)
+ * Register a bot for relay (called during monitor startup).
+ * Bot name and specialty are resolved from probe result and account config — no hardcoding.
  */
 export function registerBotForRelay(params: {
   accountId: string;
   botOpenId: string;
   botName?: string;
+  specialty?: string;
   cfg: ClawdbotConfig;
   runtime?: RuntimeEnv;
   chatHistories: Map<string, HistoryEntry[]>;
 }): void {
-  const { accountId, botOpenId, botName, cfg, runtime, chatHistories } = params;
+  const { accountId, botOpenId, botName, specialty, cfg, runtime, chatHistories } = params;
 
-  // accountId is actually the appId (e.g. cli_xxx), resolve display name via botNameDict
-  const resolvedName = botName ?? botNameDict[accountId] ?? accountId;
+  const resolvedName = botName ?? accountId;
 
   const botInfo: BotInfo = {
     accountId,
     openId: botOpenId,
     name: resolvedName,
-    specialty: BOT_SPECIALTIES[resolvedName],
+    specialty,
   };
 
   botRegistry.set(botOpenId, botInfo);
   relayConfig = cfg;
   relayRuntime = runtime ?? null;
   relayChatHistories = chatHistories;
-  runtime?.log?.(`bot-relay: registered ${accountId} as "${resolvedName}" (${botOpenId}), total bots in registry: ${botRegistry.size}`);
+  runtime?.log?.(`bot-relay: registered ${accountId} as "${resolvedName}" (${botOpenId})${specialty ? `, specialty: ${specialty}` : ""}, total bots: ${botRegistry.size}`);
 }
 
 /**
@@ -93,13 +65,36 @@ export function unregisterBotFromRelay(botOpenId: string): void {
   botRegistry.delete(botOpenId);
 }
 
+// Per-group bot presence: tracks which bots are active in which groups.
+// Key: chatId, Value: Set of accountIds seen in that group.
+const groupPresence = new Map<string, Set<string>>();
+
 /**
- * Get all registered teammates (excluding the current bot)
- * Returns formatted string for injection into agent context
+ * Record that a bot is present in a group (called when bot processes a message in that group).
  */
-export function getTeammatesContext(excludeAccountId?: string): string {
+export function markBotPresentInGroup(chatId: string, accountId: string): void {
+  let members = groupPresence.get(chatId);
+  if (!members) {
+    members = new Set();
+    groupPresence.set(chatId, members);
+  }
+  members.add(accountId);
+}
+
+/**
+ * Get all registered teammates that are present in a specific group (excluding the current bot).
+ * Returns formatted string for injection into agent context.
+ */
+export function getTeammatesContext(excludeAccountId?: string, chatId?: string): string {
+  const presentAccountIds = chatId ? groupPresence.get(chatId) : undefined;
+
   const teammates = Array.from(botRegistry.values())
-    .filter(bot => bot.accountId !== excludeAccountId);
+    .filter(bot => {
+      if (bot.accountId === excludeAccountId) return false;
+      // If we have group presence data, only include bots seen in this group
+      if (presentAccountIds) return presentAccountIds.has(bot.accountId);
+      return true;
+    });
 
   if (teammates.length === 0) {
     return "";
@@ -123,25 +118,9 @@ export function getTeammatesContext(excludeAccountId?: string): string {
   lines.push("");
   lines.push("### 如何正确 @mention");
   lines.push("");
-  lines.push("在你的回复中直接写入 `<at user_id=\"...\">名字</at>` 格式，例如：");
+  lines.push("在你的回复中直接写入 `<at user_id=\"...\">名字</at>` 格式。");
   lines.push("");
-
-//   // Add example for each teammate
-//   for (const bot of teammates.slice(0, 2)) {
-//     lines.push("```");
-//     lines.push(`这个问题需要 ${bot.specialty?.split("、")[0] ?? bot.name} 专家来解答，<at user_id="${bot.openId}">${bot.name}</at> 请帮忙分析。`);
-//     lines.push("```");
-//     lines.push("");
-//   }
-
-  lines.push("⚠️ **!!!重要!!!**：如果你是quinn，你可以@所有人，否则你只能@quinn要他去帮助@其他人");
-  lines.push("⚠️ **!!!重要!!!**：如果你是quinn，你可以@所有人，否则你只能@quinn要他去帮助@其他人");
-  lines.push("⚠️ **!!!重要!!!**：如果你是quinn，你可以@所有人，否则你只能@quinn要他去帮助@其他人");
-
-  lines.push("⚠️ **!!!重要重复1/3遍!!!**：必须使用 `<at user_id=\"...\">` 格式，纯文本 `@名字` 不会触发队友！");
-  lines.push("⚠️ **!!!重要重复2/3遍!!!**：必须使用 `<at user_id=\"...\">` 格式，纯文本 `@名字` 不会触发队友！");
-  lines.push("⚠️ **!!!重要重复3/3遍!!!**：必须使用 `<at user_id=\"...\">` 格式，纯文本 `@名字` 不会触发队友！");
-  
+  lines.push("⚠️ 必须使用 `<at user_id=\"...\">` 格式，纯文本 `@名字` 不会触发队友。");
   lines.push("");
 
   return lines.join("\n");
@@ -260,7 +239,28 @@ export async function triggerBotRelay(params: {
 /**
  * Get all registered bots info
  */
-export function getRegisteredBots(): { openId: string; accountId: string }[] {
-  return Array.from(botRegistry.entries()).map(([openId, info]) => ({ openId, accountId: info.accountId }));
+export function getRegisteredBots(): { openId: string; accountId: string; name: string }[] {
+  return Array.from(botRegistry.entries()).map(([openId, info]) => ({
+    openId,
+    accountId: info.accountId,
+    name: info.name,
+  }));
+}
+
+/**
+ * Resolve a display name for a sender ID (openId or accountId).
+ * Looks up the bot registry; returns undefined if not found.
+ */
+export function resolveBotDisplayName(id: string): string | undefined {
+  // Try by openId first
+  const byOpenId = botRegistry.get(id);
+  if (byOpenId) return byOpenId.name;
+
+  // Try by accountId
+  for (const info of botRegistry.values()) {
+    if (info.accountId === id) return info.name;
+  }
+
+  return undefined;
 }
 

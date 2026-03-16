@@ -30,12 +30,12 @@ const FEISHU_WEBHOOK_BODY_TIMEOUT_MS = 30_000;
 
 async function fetchBotOpenId(
   account: ResolvedFeishuAccount,
-): Promise<string | undefined> {
+): Promise<{ openId?: string; name?: string }> {
   try {
     const result = await probeFeishu(account);
-    return result.ok ? result.botOpenId : undefined;
+    return result.ok ? { openId: result.botOpenId, name: result.botName } : {};
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -119,10 +119,12 @@ async function monitorSingleAccount(params: MonitorAccountParams): Promise<void>
   const { accountId } = account;
   const log = runtime?.log ?? console.log;
 
-  // Fetch bot open_id
-  const botOpenId = await fetchBotOpenId(account);
+  // Fetch bot open_id and name from probe
+  const probeResult = await fetchBotOpenId(account);
+  const botOpenId = probeResult.openId;
+  const botName = probeResult.name ?? account.name;
   botOpenIds.set(accountId, botOpenId ?? "");
-  log(`feishu[${accountId}]: bot open_id resolved: ${botOpenId ?? "unknown"}`);
+  log(`feishu[${accountId}]: bot open_id resolved: ${botOpenId ?? "unknown"}, name: ${botName ?? "unknown"}`);
 
   const connectionMode = account.config.connectionMode ?? "websocket";
   const eventDispatcher = createEventDispatcher(account);
@@ -133,6 +135,8 @@ async function monitorSingleAccount(params: MonitorAccountParams): Promise<void>
     registerBotForRelay({
       accountId,
       botOpenId,
+      botName,
+      specialty: (account.config as any).specialty,
       cfg,
       runtime,
       chatHistories,
