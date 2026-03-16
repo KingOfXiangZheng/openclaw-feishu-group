@@ -1182,17 +1182,20 @@ export async function handleFeishuMessage(params: {
     const historyKey = isGroup ? ctx.chatId : undefined;
 
     // Record user message to shared history (cross-bot)
+    // Skip synthetic events — the original bot reply is already recorded by reply-dispatcher.
     if (isGroup && ctx.chatId) {
       // Mark this bot as present in the group for teammate discovery
       markBotPresentInGroup(ctx.chatId, account.accountId);
 
-      recordUserMessage({
-        chatId: ctx.chatId,
-        messageId: ctx.messageId,
-        sender: ctx.senderOpenId,
-        senderName: ctx.senderName,
-        body: ctx.content,
-      });
+      if (!isSyntheticEvent) {
+        recordUserMessage({
+          chatId: ctx.chatId,
+          messageId: ctx.messageId,
+          sender: ctx.senderOpenId,
+          senderName: ctx.senderName,
+          body: ctx.content,
+        });
+      }
     }
 
     if (isGroup && historyKey && chatHistories) {
