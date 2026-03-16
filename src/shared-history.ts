@@ -121,6 +121,87 @@ export function buildSharedHistoryContext(
   return `\n--- Recent Chat History (shared across all bots) ---\n${lines.join("\n")}\n--- End of History ---\n`;
 }
 
+// Persistent last-seen timestamps file
+const LAST_SEEN_FILE = path.join(HISTORY_DIR, "_last_seen.json");
+
+// In-memory cache, lazily loaded from disk
+let lastSeenCache: Record<string, number> | null = null;
+
+function loadLastSeen(): Record<string, number> {
+  if (lastSeenCache) return lastSeenCache;
+  try {
+    if (fs.existsSync(LAST_SEEN_FILE)) {
+      lastSeenCache = JSON.parse(fs.readFileSync(LAST_SEEN_FILE, "utf-8"));
+      return lastSeenCache!;
+    }
+  } catch {
+    // Corrupted file, start fresh
+  }
+  lastSeenCache = {};
+  return lastSeenCache;
+}
+
+function saveLastSeen(): void {
+  if (!lastSeenCache) return;
+  ensureHistoryDir();
+  fs.writeFileSync(LAST_SEEN_FILE, JSON.stringify(lastSeenCache), "utf-8");
+}
+
+function lastSeenKey(chatId: string, botAccountId: string): string {
+  return `${chatId}:${botAccountId}`;
+}
+
+/**
+ * Mark the current timestamp as "seen" for a bot in a chat.
+ * Persisted to disk so it survives restarts.
+ */
+export function markSharedHistorySeen(chatId: string, botAccountId: string): void {
+  const map = loadLastSeen();
+  map[lastSeenKey(chatId, botAccountId)] = Date.now();
+  saveLastSeen();
+}
+
+/**
+ * Build incremental context: only entries from OTHER bots/users since this bot last saw the history.
+ * Returns empty string if nothing new from others.
+ */
+export function buildIncrementalSharedHistoryContext(
+  chatId: string,
+  botAccountId: string,
+  limit: number = MAX_HISTORY_ENTRIES,
+): string {
+  const map = loadLastSeen();
+  const since = map[lastSeenKey(chatId, botAccountId)] ?? 0;
+
+  const entries = readSharedHistory(chatId, limit);
+  if (entries.length === 0) return "";
+
+  // Only entries after the last time this bot saw the history,
+  // and only from OTHER participants (other bots or users)
+  const incremental = entries.filter(e =>
+    e.timestamp > since && e.botAccountId !== botAccountId
+  );
+
+  if (incremental.length === 0) return "";
+
+  const lines = incremental.map(e => {
+    const name = e.senderName ?? e.sender;
+    const resolvedName = botNameDict[name] ?? name;
+    const prefix = e.senderType === "bot"
+      ? `[Bot:${resolvedName ?? "unknown"}]`
+      : name.startsWith("bot_")
+        ? `[Bot:${botNameDict[name.slice(4)] ?? name}]`
+        : "[User]";
+    const resolvedName2 =
+      botNameDict[name] ??
+      (name.startsWith("bot_") ? botNameDict[name.slice(4)] : undefined) ??
+      name;
+    return `${prefix} ${resolvedName2}: ${e.body}`;
+  });
+
+  return `\n--- New messages from other participants ---\n${lines.join("\n")}\n--- End ---\n`;
+}
+
 /**
  * Record a user message to shared history
  */

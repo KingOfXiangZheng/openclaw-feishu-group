@@ -31,7 +31,7 @@ import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
-import { recordUserMessage, buildSharedHistoryContext } from "./shared-history.js";
+import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen } from "./shared-history.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext } from "./bot-relay.js";
 
@@ -989,13 +989,11 @@ export async function handleFeishuMessage(params: {
     const feishuTo = isGroup ? `chat:${ctx.chatId}` : `user:${ctx.senderOpenId}`;
 
     // Resolve peer ID for session routing
-    // When user @mentions the bot in a group, always create a NEW session (for fresh conversation)
+    // Group chats use a stable chatId so the bot maintains session continuity.
+    // OpenClaw's own session history handles single-bot context;
+    // cross-bot context is injected incrementally via shared-history.
     let peerId = isGroup ? ctx.chatId : ctx.senderOpenId;
-    if (isGroup && ctx.mentionedBot) {
-      // Always create a new session when user @mentions the bot (ignore topicSessionMode)
-      peerId = `tmp:${ctx.chatId}:${Date.now()}`;
-      log(`feishu[${account.accountId}]: new session triggered by @mention, peer=${peerId}`);
-    } else if (isGroup && ctx.rootId) {
+    if (isGroup && ctx.rootId) {
       // topicSessionMode: messages within a topic (identified by root_id) get separate session
       const groupConfig = resolveFeishuGroupConfig({ cfg: feishuCfg, groupId: ctx.chatId });
       const topicSessionMode = groupConfig?.topicSessionMode ?? feishuCfg?.topicSessionMode ?? "disabled";
@@ -1212,9 +1210,9 @@ export async function handleFeishuMessage(params: {
       });
     }
 
-    // Inject shared history (includes other bots' replies)
+    // Inject incremental shared history (only new messages from other bots since last seen)
     if (isGroup && ctx.chatId) {
-      const sharedHistory = buildSharedHistoryContext(ctx.chatId, historyLimit, ctx.messageId);
+      const sharedHistory = buildIncrementalSharedHistoryContext(ctx.chatId, account.accountId, historyLimit);
       if (sharedHistory) {
         combinedBody = sharedHistory + "\n" + combinedBody;
       }
@@ -1284,6 +1282,11 @@ export async function handleFeishuMessage(params: {
     );
 
     markDispatchIdle();
+
+    // Mark shared history as seen so next time we only inject incremental updates
+    if (isGroup && ctx.chatId) {
+      markSharedHistorySeen(ctx.chatId, account.accountId);
+    }
 
     if (isGroup && historyKey && chatHistories) {
       clearHistoryEntriesIfEnabled({
