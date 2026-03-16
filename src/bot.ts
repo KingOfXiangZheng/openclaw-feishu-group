@@ -1311,7 +1311,7 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    //log(`feishu[${account.accountId}]: combinedBody ${combinedBody}`);
+    log(`feishu[${account.accountId}]: combinedBody ${combinedBody}`);
     //log(`feishu[${account.accountId}]: ctx.content ${ctx.content}`);
     const ctxPayload = core.channel.reply.finalizeInboundContext({
       Body: combinedBody,
