@@ -244,6 +244,13 @@ async function resolveFeishuSenderName(params: {
   if (!account.configured) return {};
   if (!senderOpenId) return {};
 
+  // Synthetic event senders use "bot_<accountId>" format — resolve from bot registry, not API
+  if (senderOpenId.startsWith("bot_")) {
+    const name = resolveBotDisplayName(senderOpenId);
+    if (name) return { name };
+    return {};
+  }
+
   const cached = senderNameCache.get(senderOpenId);
   const now = Date.now();
   if (cached && cached.expireAt > now) return { name: cached.name };
@@ -1130,7 +1137,7 @@ export async function handleFeishuMessage(params: {
       messageBody += `\n\n[System: Your reply will automatically @mention: ${targetNames}. Do not write @xxx yourself.]`;
     }
 
-    const envelopeFrom = isGroup ? `${ctx.chatId}:${ctx.senderOpenId}` : ctx.senderOpenId;
+    const envelopeFrom = isGroup ? `${ctx.chatId}:${ctx.senderName ?? ctx.senderOpenId}` : ctx.senderOpenId;
 
     // If there's a permission error, dispatch a separate notification first
     if (permissionErrorForAgent) {
@@ -1241,12 +1248,14 @@ export async function handleFeishuMessage(params: {
       // We do NOT persist shared entries into chatHistories — they are controlled by
       // markSharedHistorySeen and must not linger across turns.
       const tempHistoryMap = new Map(chatHistories);
+      const existing = tempHistoryMap.get(historyKey) ?? [];
+
       if (sharedEntries.length > 0) {
-        const existing = tempHistoryMap.get(historyKey) ?? [];
-        const existingIds = new Set(existing.map(e => e.messageId).filter(Boolean));
+        const sharedIds = new Set(sharedEntries.map(e => e.messageId).filter(Boolean));
+        // Remove pending history entries that already exist in shared history (avoid duplicates)
+        const dedupedExisting = existing.filter(e => !e.messageId || !sharedIds.has(e.messageId));
         const merged = [
           ...sharedEntries
-            .filter(e => !existingIds.has(e.messageId))
             .map(e => {
               const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
               const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
@@ -1260,7 +1269,7 @@ export async function handleFeishuMessage(params: {
                 messageId: e.messageId,
               };
             }),
-          ...existing,
+          ...dedupedExisting,
         ].sort((a, b) => a.timestamp - b.timestamp);
         tempHistoryMap.set(historyKey, merged);
       }
