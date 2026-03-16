@@ -244,7 +244,10 @@ async function resolveFeishuSenderName(params: {
   if (!account.configured) return {};
   if (!senderOpenId) return {};
 
-  // Synthetic event senders use "bot_<accountId>" format — resolve from bot registry, not API
+  // Synthetic event senders use special prefixes — resolve from bot registry or return system label
+  if (senderOpenId === "system_gather") {
+    return { name: "系统汇总" };
+  }
   if (senderOpenId.startsWith("bot_")) {
     const name = resolveBotDisplayName(senderOpenId);
     if (name) return { name };
@@ -1237,11 +1240,10 @@ export async function handleFeishuMessage(params: {
     // Inject cross-bot shared history entries into chatHistories
     // so they appear inside [Chat messages since your last reply].
     if (isGroup && historyKey && chatHistories) {
-      // For synthetic events (bot-to-bot relay), clear stale pending history entries
-      // to avoid showing messages the bot already processed in a previous turn.
-      if (isSyntheticEvent) {
-        chatHistories.delete(historyKey);
-      }
+      // For synthetic events (bot-to-bot relay), we rely primarily on shared history
+      // which is persistent and per-bot. Don't delete chatHistories as it may be
+      // used by other bots processing in parallel.
+      // Instead, we filter based on lastSeen timestamp for this specific bot.
 
       let sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
       const lastSeen = getLastSeenTimestamp(ctx.chatId, account.accountId);
