@@ -161,9 +161,131 @@ export function getBotInfo(openId: string): BotInfo | undefined {
   return botRegistry.get(openId);
 }
 
+// --- Fan-out / Gather mechanism ---
+// When bot A @mentions B and C, A waits for B and C to reply back before continuing.
+
+const GATHER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+interface GatherEntry {
+  /** accountId of the bot that replied */
+  accountId: string;
+  botName: string;
+  body: string;
+}
+
+interface PendingGather {
+  /** accountId of the bot that initiated the fan-out */
+  sourceAccountId: string;
+  sourceBotName: string;
+  chatId: string;
+  /** accountIds we're waiting for */
+  pendingAccountIds: Set<string>;
+  /** Replies collected so far */
+  replies: GatherEntry[];
+  /** Resolve the promise when gather completes */
+  resolve: (replies: GatherEntry[]) => void;
+  /** Timeout handle */
+  timer: ReturnType<typeof setTimeout>;
+}
+
+// Key: "chatId:sourceAccountId" → only one active gather per bot per chat
+const pendingGathers = new Map<string, PendingGather>();
+
+function gatherKey(chatId: string, sourceAccountId: string): string {
+  return `${chatId}:${sourceAccountId}`;
+}
+
+/**
+ * Create a pending gather and return a promise that resolves when all expected bots reply
+ * or when the timeout expires.
+ */
+function createGather(params: {
+  sourceAccountId: string;
+  sourceBotName: string;
+  chatId: string;
+  expectedAccountIds: string[];
+}): Promise<GatherEntry[]> {
+  const { sourceAccountId, sourceBotName, chatId, expectedAccountIds } = params;
+  const key = gatherKey(chatId, sourceAccountId);
+
+  // Cancel any existing gather for this bot in this chat
+  const existing = pendingGathers.get(key);
+  if (existing) {
+    clearTimeout(existing.timer);
+    existing.resolve(existing.replies);
+    pendingGathers.delete(key);
+  }
+
+  return new Promise<GatherEntry[]>((resolve) => {
+    const timer = setTimeout(() => {
+      const gather = pendingGathers.get(key);
+      if (gather) {
+        relayRuntime?.log?.(`bot-relay: gather timeout for ${sourceAccountId} in ${chatId}, got ${gather.replies.length}/${expectedAccountIds.length} replies`);
+        pendingGathers.delete(key);
+        resolve(gather.replies);
+      }
+    }, GATHER_TIMEOUT_MS);
+
+    pendingGathers.set(key, {
+      sourceAccountId,
+      sourceBotName,
+      chatId,
+      pendingAccountIds: new Set(expectedAccountIds),
+      replies: [],
+      resolve,
+      timer,
+    });
+  });
+}
+
+/**
+ * Called when a bot sends a reply that @mentions another bot.
+ * If the mentioned bot has a pending gather waiting for this reply, record it.
+ * Returns true if this reply was consumed by a gather (i.e. the replying bot was expected).
+ */
+export function notifyGather(params: {
+  replierAccountId: string;
+  replierName: string;
+  chatId: string;
+  replyText: string;
+  mentionedBotAccountIds: string[];
+}): boolean {
+  const { replierAccountId, replierName, chatId, replyText, mentionedBotAccountIds } = params;
+  let consumed = false;
+
+  for (const targetAccountId of mentionedBotAccountIds) {
+    const key = gatherKey(chatId, targetAccountId);
+    const gather = pendingGathers.get(key);
+    if (!gather) continue;
+    if (!gather.pendingAccountIds.has(replierAccountId)) continue;
+
+    // Record this reply
+    gather.replies.push({
+      accountId: replierAccountId,
+      botName: replierName,
+      body: replyText,
+    });
+    gather.pendingAccountIds.delete(replierAccountId);
+    consumed = true;
+
+    relayRuntime?.log?.(`bot-relay: gather for ${targetAccountId} received reply from ${replierAccountId}, remaining: ${gather.pendingAccountIds.size}`);
+
+    // If all expected replies received, resolve immediately
+    if (gather.pendingAccountIds.size === 0) {
+      clearTimeout(gather.timer);
+      pendingGathers.delete(key);
+      gather.resolve(gather.replies);
+    }
+  }
+
+  return consumed;
+}
+
 /**
  * Trigger relay for mentioned bots
- * Called after a bot sends a reply
+ * Called after a bot sends a reply.
+ * Creates a fan-out to mentioned bots and waits for their replies (gather).
+ * Returns the collected replies (may be partial if timeout).
  */
 export async function triggerBotRelay(params: {
   sourceAccountId: string;
@@ -171,36 +293,45 @@ export async function triggerBotRelay(params: {
   chatId: string;
   messageText: string;
   originalMessageId?: string;
-}): Promise<void> {
+}): Promise<GatherEntry[]> {
   if (!relayConfig || !relayChatHistories) {
-    return;
+    return [];
   }
 
-  const { sourceAccountId, sourceBotName, chatId, messageText, originalMessageId } = params;
+  const { sourceAccountId, sourceBotName, chatId, messageText } = params;
   const mentions = parseMentionTags(messageText);
   
   // Find bots that were mentioned (ignore self)
   const botMentions = mentions.filter(m => {
     if (!isBotOpenId(m.openId)) return false;
-
     const targetAccountId = getBotAccountId(m.openId);
     if (!targetAccountId) return false;
-
-    // ignore self mention
     return targetAccountId !== sourceAccountId;
   });
+
   if (botMentions.length === 0) {
-    return;
+    return [];
   }
 
-  relayRuntime?.log?.(`bot-relay: ${sourceAccountId} mentioned ${botMentions.length} bot(s): ${botMentions.map(m => m.name).join(", ")}`);
+  const expectedAccountIds = botMentions
+    .map(m => getBotAccountId(m.openId))
+    .filter((id): id is string => !!id);
+
+  relayRuntime?.log?.(`bot-relay: ${sourceBotName} mentioned ${botMentions.length} bot(s): ${botMentions.map(m => m.name).join(", ")}, waiting for replies...`);
+
+  // Create gather BEFORE triggering, so replies that come back fast aren't missed
+  const gatherPromise = createGather({
+    sourceAccountId,
+    sourceBotName,
+    chatId,
+    expectedAccountIds,
+  });
 
   // Trigger each mentioned bot with a synthetic event
   for (const mention of botMentions) {
     const targetAccountId = getBotAccountId(mention.openId);
     if (!targetAccountId) continue;
 
-    // Create synthetic event that looks like a user message
     const syntheticEvent: FeishuMessageEvent = {
       message: {
         message_id: `synthetic_${Date.now()}_${targetAccountId}`,
@@ -214,26 +345,32 @@ export async function triggerBotRelay(params: {
         sender_id: { open_id: `bot_${sourceAccountId}` },
         sender_type: "bot",
       },
-      // Mark as synthetic for potential special handling
       _synthetic: true,
       _sourceBot: sourceAccountId,
       _sourceBotName: sourceBotName,
     } as FeishuMessageEvent & { _synthetic?: boolean; _sourceBot?: string; _sourceBotName?: string };
 
     try {
-      await handleFeishuMessage({
+      // Fire and forget — don't await individual bot handling, let them run in parallel
+      handleFeishuMessage({
         cfg: relayConfig,
         event: syntheticEvent,
         botOpenId: mention.openId,
         runtime: relayRuntime ?? undefined,
         chatHistories: relayChatHistories,
         accountId: targetAccountId,
+      }).catch(err => {
+        relayRuntime?.error?.(`bot-relay: failed to trigger ${targetAccountId}: ${String(err)}`);
       });
-      relayRuntime?.log?.(`bot-relay: triggered ${targetAccountId} successfully`);
     } catch (err) {
       relayRuntime?.error?.(`bot-relay: failed to trigger ${targetAccountId}: ${String(err)}`);
     }
   }
+
+  // Wait for all replies or timeout
+  const replies = await gatherPromise;
+  relayRuntime?.log?.(`bot-relay: gather complete for ${sourceBotName}, got ${replies.length}/${expectedAccountIds.length} replies`);
+  return replies;
 }
 
 /**

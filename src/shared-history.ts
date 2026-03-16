@@ -233,10 +233,15 @@ export function buildIncrementalSharedHistoryContext(
   if (entries.length === 0) return "";
 
   // Only entries after the last time this bot saw the history,
-  // and only from OTHER participants (other bots or users)
-  const incremental = entries.filter(e =>
-    e.timestamp > since && e.botAccountId !== botAccountId
-  );
+  // and only from OTHER participants (exclude this bot's own messages by accountId and sender)
+  const incremental = entries.filter(e => {
+    if (e.timestamp <= since) return false;
+    // Exclude bot's own replies
+    if (e.botAccountId === botAccountId) return false;
+    // Exclude synthetic sender format "bot_<accountId>"
+    if (e.sender === botAccountId || e.sender === `bot_${botAccountId}`) return false;
+    return true;
+  });
 
   if (incremental.length === 0) return "";
 

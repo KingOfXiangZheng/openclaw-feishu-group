@@ -18,7 +18,7 @@ import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } 
 // Shared history for cross-bot context
 import { recordBotReply } from "./shared-history.js";
 // Bot-to-Bot relay for triggering mentioned bots
-import { triggerBotRelay } from "./bot-relay.js";
+import { triggerBotRelay, notifyGather, parseMentionTags, isBotOpenId, getBotAccountId, getRegisteredBots } from "./bot-relay.js";
 
 /** Detect if text contains markdown elements that benefit from card rendering */
 function shouldUseCard(text: string): boolean {
@@ -202,21 +202,87 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         // Record bot reply to shared history (for cross-bot context)
         // Only record for group chats (chatId starts with "oc_")
         if (chatId.startsWith("oc_")) {
+          const botName = account.name ?? accountId;
+
           recordBotReply({
             chatId,
             messageId: `bot_${Date.now()}_${accountId}`,
             botAccountId: accountId,
-            botName: account.name ?? accountId,
+            botName,
             body: text,
           });
 
-          // Trigger Bot-to-Bot relay if this message mentions other bots
-          void triggerBotRelay({
-            sourceAccountId: accountId,
-            sourceBotName: account.name ?? accountId,
-            chatId,
-            messageText: text,
-          });
+          // Notify any pending gathers that this bot has replied
+          const mentionedBots = parseMentionTags(text)
+            .filter(m => isBotOpenId(m.openId))
+            .map(m => getBotAccountId(m.openId))
+            .filter((id): id is string => !!id);
+
+          if (mentionedBots.length > 0) {
+            notifyGather({
+              replierAccountId: accountId,
+              replierName: botName,
+              chatId,
+              replyText: text,
+              mentionedBotAccountIds: mentionedBots,
+            });
+          }
+
+          // Trigger Bot-to-Bot relay if this message mentions other bots.
+          // triggerBotRelay fans out to mentioned bots and waits for their replies (gather).
+          // After gather completes, the collected replies are sent back as a synthetic
+          // message to this bot so it can produce a summary.
+          void (async () => {
+            try {
+              const replies = await triggerBotRelay({
+                sourceAccountId: accountId,
+                sourceBotName: botName,
+                chatId,
+                messageText: text,
+              });
+
+              if (replies.length > 0) {
+                // Build a summary of collected replies and feed back to the source bot
+                const summaryLines = replies.map(r => `[${r.botName}]: ${r.body}`);
+                const summaryText = `以下是你 @mention 的队友的回复，请基于这些回复进行汇总：\n\n${summaryLines.join("\n\n")}`;
+
+                // Find source bot's openId
+                const sourceBotOpenId = getRegisteredBots()
+                  .find(b => b.accountId === accountId)?.openId;
+
+                if (sourceBotOpenId) {
+                  const { handleFeishuMessage: handleMsg } = await import("./bot.js");
+                  const syntheticGatherEvent = {
+                    message: {
+                      message_id: `gather_${Date.now()}_${accountId}`,
+                      chat_id: chatId,
+                      chat_type: "group" as const,
+                      message_type: "text",
+                      content: JSON.stringify({ text: summaryText }),
+                      mentions: [{ id: { open_id: sourceBotOpenId }, name: botName, key: "@_user_1" }],
+                    },
+                    sender: {
+                      sender_id: { open_id: "system_gather" },
+                      sender_type: "system",
+                    },
+                    _synthetic: true,
+                    _sourceBot: "gather",
+                    _sourceBotName: "gather",
+                  };
+
+                  await handleMsg({
+                    cfg,
+                    event: syntheticGatherEvent as any,
+                    botOpenId: sourceBotOpenId,
+                    runtime: params.runtime,
+                    accountId,
+                  });
+                }
+              }
+            } catch (err) {
+              params.runtime.error?.(`feishu[${account.accountId}] gather relay failed: ${String(err)}`);
+            }
+          })();
         }
       },
       onError: async (error, info) => {
