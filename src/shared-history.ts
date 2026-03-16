@@ -218,6 +218,23 @@ export function markTeammatesContextInjected(chatId: string, botAccountId: strin
 }
 
 /**
+ * Invalidate teammates cache for all bots in a group.
+ * Called when a new bot is discovered in the group, so all bots re-inject the updated roster.
+ */
+export function invalidateTeammatesForGroup(chatId: string, botAccountIds: string[]): void {
+  const map = loadTeammatesInjected();
+  let changed = false;
+  for (const accountId of botAccountIds) {
+    const key = lastSeenKey(chatId, accountId);
+    if (key in map) {
+      delete map[key];
+      changed = true;
+    }
+  }
+  if (changed) saveTeammatesInjected();
+}
+
+/**
  * Build incremental context: only entries from OTHER bots/users since this bot last saw the history.
  * Returns empty string if nothing new from others.
  */
