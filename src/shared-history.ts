@@ -244,28 +244,10 @@ export function buildIncrementalSharedHistoryContext(
   limit: number = MAX_HISTORY_ENTRIES,
   excludeMessageId?: string,
 ): string {
-  const map = loadLastSeen();
-  const since = map[lastSeenKey(chatId, botAccountId)] ?? 0;
-
-  const entries = readSharedHistory(chatId, limit);
+  const entries = getIncrementalSharedHistoryEntries(chatId, botAccountId, limit, excludeMessageId);
   if (entries.length === 0) return "";
 
-  // Only entries after the last time this bot saw the history,
-  // and only from OTHER participants (exclude this bot's own messages by accountId and sender)
-  const incremental = entries.filter(e => {
-    if (e.timestamp <= since) return false;
-    // Exclude the current message being processed (already in envelope body)
-    if (excludeMessageId && e.messageId === excludeMessageId) return false;
-    // Exclude bot's own replies
-    if (e.botAccountId === botAccountId) return false;
-    // Exclude synthetic sender format "bot_<accountId>"
-    if (e.sender === botAccountId || e.sender === `bot_${botAccountId}`) return false;
-    return true;
-  });
-
-  if (incremental.length === 0) return "";
-
-  const lines = incremental.map(e => {
+  const lines = entries.map(e => {
     const name = e.senderName ?? e.sender;
     const resolvedName = resolveDisplayName(e.sender, e.senderName);
     const prefix = e.senderType === "bot"
@@ -277,6 +259,32 @@ export function buildIncrementalSharedHistoryContext(
   });
 
   return `\n--- New messages from other participants ---\n${lines.join("\n")}\n--- End ---\n`;
+}
+
+/**
+ * Get incremental shared history entries as raw data.
+ * Used to inject cross-bot messages into the pending history map
+ * so they appear inside [Chat messages since your last reply].
+ */
+export function getIncrementalSharedHistoryEntries(
+  chatId: string,
+  botAccountId: string,
+  limit: number = MAX_HISTORY_ENTRIES,
+  excludeMessageId?: string,
+): SharedHistoryEntry[] {
+  const map = loadLastSeen();
+  const since = map[lastSeenKey(chatId, botAccountId)] ?? 0;
+
+  const entries = readSharedHistory(chatId, limit);
+  if (entries.length === 0) return [];
+
+  return entries.filter(e => {
+    if (e.timestamp <= since) return false;
+    if (excludeMessageId && e.messageId === excludeMessageId) return false;
+    if (e.botAccountId === botAccountId) return false;
+    if (e.sender === botAccountId || e.sender === `bot_${botAccountId}`) return false;
+    return true;
+  });
 }
 
 // Dedup: track recently recorded messageIds to avoid duplicates

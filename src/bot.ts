@@ -31,7 +31,8 @@ import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
-import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen } from "./shared-history.js";
+import { recordUserMessage, getIncrementalSharedHistoryEntries, markSharedHistorySeen } from "./shared-history.js";
+import { resolveBotDisplayName } from "./bot-relay.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
 
@@ -1198,7 +1199,28 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    if (isGroup && historyKey && chatHistories) {
+    // Inject cross-bot shared history entries into chatHistories
+    // so they appear inside [Chat messages since your last reply].
+    if (isGroup && historyKey && chatHistories && !isSyntheticEvent) {
+      const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
+      if (sharedEntries.length > 0) {
+        const existing = chatHistories.get(historyKey) ?? [];
+        const merged = [
+          ...sharedEntries.map(e => {
+            const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
+            const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
+            return {
+              sender: e.sender,
+              body: `${prefix} ${name}: ${e.body}`,
+              timestamp: e.timestamp,
+              messageId: e.messageId,
+            };
+          }),
+          ...existing,
+        ].sort((a, b) => a.timestamp - b.timestamp);
+        chatHistories.set(historyKey, merged);
+      }
+
       combinedBody = buildPendingHistoryContextFromMap({
         historyMap: chatHistories,
         historyKey,
@@ -1207,21 +1229,12 @@ export async function handleFeishuMessage(params: {
         formatEntry: (entry) =>
           core.channel.reply.formatAgentEnvelope({
             channel: "Feishu",
-            // Preserve speaker identity in group history as well.
             from: `${ctx.chatId}:${entry.sender}`,
             timestamp: entry.timestamp,
             body: entry.body,
             envelope: envelopeOptions,
           }),
       });
-    }
-
-    // Inject incremental shared history (only new messages from other bots since last seen)
-    if (isGroup && ctx.chatId) {
-      const sharedHistory = buildIncrementalSharedHistoryContext(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
-      if (sharedHistory) {
-        combinedBody = sharedHistory + "\n" + combinedBody;
-      }
     }
 
     // Inject available teammates info for bot-to-bot collaboration
