@@ -259,8 +259,24 @@ export function buildIncrementalSharedHistoryContext(
   return `\n--- New messages from other participants ---\n${lines.join("\n")}\n--- End ---\n`;
 }
 
+// Dedup: track recently recorded messageIds to avoid duplicates
+// when multiple bots process the same user message.
+const recentMessageIds = new Set<string>();
+const DEDUP_MAX_SIZE = 200;
+
+function isDuplicateMessage(messageId: string): boolean {
+  if (recentMessageIds.has(messageId)) return true;
+  // Evict oldest entries if set grows too large
+  if (recentMessageIds.size >= DEDUP_MAX_SIZE) {
+    const first = recentMessageIds.values().next().value;
+    if (first) recentMessageIds.delete(first);
+  }
+  recentMessageIds.add(messageId);
+  return false;
+}
+
 /**
- * Record a user message to shared history
+ * Record a user message to shared history (deduped by messageId)
  */
 export function recordUserMessage(params: {
   chatId: string;
@@ -269,6 +285,8 @@ export function recordUserMessage(params: {
   senderName?: string;
   body: string;
 }): void {
+  if (isDuplicateMessage(params.messageId)) return;
+
   appendSharedHistory(params.chatId, {
     timestamp: Date.now(),
     messageId: params.messageId,
