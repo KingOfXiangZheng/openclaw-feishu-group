@@ -107,20 +107,15 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
 
   const lines = [
     "",
-    "[System: 群内其他 AI 队友（仅供参考，严禁随意 @mention）]",
+    "[System: 群内其他 AI 队友]",
     "",
     teammateList,
     "",
     "⚠️ 重要规则：",
+    "2. @mention 格式：<at user_id=\"openId\">名字</at>",
     "",
-    "1. 默认不 @mention 任何队友。你应该独立完成用户的请求。",
-    "2. 只有同时满足以下 ALL 条件时，才 @mention 队友：",
-    "   - 用户明确要求协作（如\"让 Alex 帮我...\"、\"问问 Nova...\"）",
-    "   - 或任务客观上超出你的能力范围，且明确属于某队友专长",
-    "3. 禁止以下行为：",
-    "   - 禁止为介绍队友而 @mention",
-    "   - 禁止为\"礼貌性通知\"而 @mention",
-    "4. @mention 格式：<at user_id=\"openId\">名字</at>",
+    "3. 提醒：",
+    "   - @mention 应该遵守：若无其他需求，相互直接@mention后结束@mention，因为@mention后对方必然会回答，防止出现死循环",
     "",
   ];
 
