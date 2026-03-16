@@ -285,20 +285,19 @@ export function notifyGather(params: {
 }
 
 /**
- * Trigger relay for mentioned bots
+ * Trigger relay for mentioned bots (simple version - no gather/summary)
  * Called after a bot sends a reply.
- * Creates a fan-out to mentioned bots and waits for their replies (gather).
- * Returns the collected replies (may be partial if timeout).
+ * Sends synthetic events to mentioned bots, they will reply independently.
  */
-export async function triggerBotRelay(params: {
+export function triggerBotRelay(params: {
   sourceAccountId: string;
   sourceBotName: string;
   chatId: string;
   messageText: string;
   originalMessageId?: string;
-}): Promise<GatherEntry[]> {
+}): void {
   if (!relayConfig || !relayChatHistories) {
-    return [];
+    return;
   }
 
   const { sourceAccountId, sourceBotName, chatId, messageText } = params;
@@ -313,22 +312,10 @@ export async function triggerBotRelay(params: {
   });
 
   if (botMentions.length === 0) {
-    return [];
+    return;
   }
 
-  const expectedAccountIds = botMentions
-    .map(m => getBotAccountId(m.openId))
-    .filter((id): id is string => !!id);
-
-  relayRuntime?.log?.(`bot-relay: ${sourceBotName} mentioned ${botMentions.length} bot(s): ${botMentions.map(m => m.name).join(", ")}, waiting for replies...`);
-
-  // Create gather BEFORE triggering, so replies that come back fast aren't missed
-  const gatherPromise = createGather({
-    sourceAccountId,
-    sourceBotName,
-    chatId,
-    expectedAccountIds,
-  });
+  relayRuntime?.log?.(`bot-relay: ${sourceBotName} mentioned ${botMentions.length} bot(s): ${botMentions.map(m => m.name).join(", ")}`);
 
   // Trigger each mentioned bot with a synthetic event
   for (const mention of botMentions) {
@@ -354,7 +341,6 @@ export async function triggerBotRelay(params: {
     } as FeishuMessageEvent & { _synthetic?: boolean; _sourceBot?: string; _sourceBotName?: string };
 
     try {
-      // Fire and forget — don't await individual bot handling, let them run in parallel
       handleFeishuMessage({
         cfg: relayConfig,
         event: syntheticEvent,
@@ -369,11 +355,6 @@ export async function triggerBotRelay(params: {
       relayRuntime?.error?.(`bot-relay: failed to trigger ${targetAccountId}: ${String(err)}`);
     }
   }
-
-  // Wait for all replies or timeout
-  const replies = await gatherPromise;
-  relayRuntime?.log?.(`bot-relay: gather complete for ${sourceBotName}, got ${replies.length}/${expectedAccountIds.length} replies`);
-  return replies;
 }
 
 /**
