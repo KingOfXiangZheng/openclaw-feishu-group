@@ -161,6 +161,65 @@ export function markSharedHistorySeen(chatId: string, botAccountId: string): voi
   saveLastSeen();
 }
 
+// --- Teammates context injection tracking ---
+// Persistent file tracking which bot+chat combos have already had teammates info injected.
+// Key format: "chatId:botAccountId", value: hash of teammates context (to re-inject if roster changes).
+const TEAMMATES_INJECTED_FILE = path.join(HISTORY_DIR, "_teammates_injected.json");
+let teammatesInjectedCache: Record<string, string> | null = null;
+
+function loadTeammatesInjected(): Record<string, string> {
+  if (teammatesInjectedCache) return teammatesInjectedCache;
+  try {
+    if (fs.existsSync(TEAMMATES_INJECTED_FILE)) {
+      teammatesInjectedCache = JSON.parse(fs.readFileSync(TEAMMATES_INJECTED_FILE, "utf-8"));
+      return teammatesInjectedCache!;
+    }
+  } catch {
+    // Corrupted file, start fresh
+  }
+  teammatesInjectedCache = {};
+  return teammatesInjectedCache;
+}
+
+function saveTeammatesInjected(): void {
+  if (!teammatesInjectedCache) return;
+  ensureHistoryDir();
+  fs.writeFileSync(TEAMMATES_INJECTED_FILE, JSON.stringify(teammatesInjectedCache), "utf-8");
+}
+
+/**
+ * Simple hash for detecting teammates roster changes.
+ */
+function simpleHash(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return h.toString(36);
+}
+
+/**
+ * Check if teammates context needs to be injected for this bot+chat.
+ * Returns true only if it hasn't been injected yet, or if the roster has changed.
+ */
+export function shouldInjectTeammatesContext(chatId: string, botAccountId: string, teammatesText: string): boolean {
+  if (!teammatesText) return false;
+  const map = loadTeammatesInjected();
+  const key = lastSeenKey(chatId, botAccountId);
+  const currentHash = simpleHash(teammatesText);
+  return map[key] !== currentHash;
+}
+
+/**
+ * Mark teammates context as injected for this bot+chat.
+ */
+export function markTeammatesContextInjected(chatId: string, botAccountId: string, teammatesText: string): void {
+  const map = loadTeammatesInjected();
+  const key = lastSeenKey(chatId, botAccountId);
+  map[key] = simpleHash(teammatesText);
+  saveTeammatesInjected();
+}
+
 /**
  * Build incremental context: only entries from OTHER bots/users since this bot last saw the history.
  * Returns empty string if nothing new from others.

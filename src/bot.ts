@@ -31,7 +31,7 @@ import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
-import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen } from "./shared-history.js";
+import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen, shouldInjectTeammatesContext, markTeammatesContextInjected } from "./shared-history.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext } from "./bot-relay.js";
 
@@ -1218,11 +1218,12 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    // Inject available teammates info (for bot-to-bot collaboration)
+    // Inject available teammates info only once per session (or when roster changes)
     if (isGroup) {
       const teammatesInfo = getTeammatesContext(account.accountId);
-      if (teammatesInfo) {
+      if (teammatesInfo && shouldInjectTeammatesContext(ctx.chatId, account.accountId, teammatesInfo)) {
         combinedBody = teammatesInfo + "\n" + combinedBody;
+        markTeammatesContextInjected(ctx.chatId, account.accountId, teammatesInfo);
       }
     }
 
