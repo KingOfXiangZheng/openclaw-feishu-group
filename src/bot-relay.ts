@@ -126,8 +126,10 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
   for (const bot of teammates) {
     lines.push(`<!-- ${bot.name}: <at user_id="${bot.openId}">${bot.name}</at> -->`);
   }
-
+  lines.push("！！！请记住按照这种格式进行@mention，否则对方无法收到消息！！！");
+  lines.push("！！！请记住按照这种格式进行@mention，否则对方无法收到消息！！！");
   lines.push("");
+
 
   return lines.join("\n");
 }
