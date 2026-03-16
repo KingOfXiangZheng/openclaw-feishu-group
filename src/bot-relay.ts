@@ -125,7 +125,6 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
     lines.push(`   - 若要联系${bot.name}请按照输出： <at user_id="${bot.openId}">${bot.name}</at>`);
   }
   lines.push("！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
-  lines.push("！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
   lines.push("");
 
 
