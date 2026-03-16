@@ -154,6 +154,16 @@ export function markSharedHistorySeen(chatId: string, botAccountId: string): voi
   saveLastSeen();
 }
 
+/**
+ * Get the last-seen timestamp for a bot in a chat.
+ * Returns 0 if never seen.
+ */
+export function getLastSeenTimestamp(chatId: string, botAccountId: string): number {
+  const map = loadLastSeen();
+  return map[lastSeenKey(chatId, botAccountId)] ?? 0;
+}
+
+
 // --- Teammates context injection tracking ---
 // Persistent file tracking which bot+chat combos have already had teammates info injected.
 // Key format: "chatId:botAccountId", value: hash of teammates context (to re-inject if roster changes).

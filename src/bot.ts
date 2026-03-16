@@ -31,7 +31,7 @@ import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
-import { recordUserMessage, getIncrementalSharedHistoryEntries, markSharedHistorySeen } from "./shared-history.js";
+import { recordUserMessage, getIncrementalSharedHistoryEntries, markSharedHistorySeen, getLastSeenTimestamp } from "./shared-history.js";
 import { resolveBotDisplayName } from "./bot-relay.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
@@ -1243,6 +1243,7 @@ export async function handleFeishuMessage(params: {
       }
 
       const sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
+      const lastSeen = getLastSeenTimestamp(ctx.chatId, account.accountId);
 
       // Build a temporary history map that merges shared history entries with pending history.
       // We do NOT persist shared entries into chatHistories — they are controlled by
@@ -1250,29 +1251,32 @@ export async function handleFeishuMessage(params: {
       const tempHistoryMap = new Map(chatHistories);
       const existing = tempHistoryMap.get(historyKey) ?? [];
 
-      if (sharedEntries.length > 0) {
-        const sharedIds = new Set(sharedEntries.map(e => e.messageId).filter(Boolean));
-        // Remove pending history entries that already exist in shared history (avoid duplicates)
-        const dedupedExisting = existing.filter(e => !e.messageId || !sharedIds.has(e.messageId));
-        const merged = [
-          ...sharedEntries
-            .map(e => {
-              const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
-              const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
-              const prefix = isBot ? `[Bot]` : `[User]`;
-              // Replace <at user_id="...">Name</at> tags with readable @Name
-              const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
-              return {
-                sender: name,
-                body: `${prefix} ${name}: ${readableBody}`,
-                timestamp: e.timestamp,
-                messageId: e.messageId,
-              };
-            }),
-          ...dedupedExisting,
-        ].sort((a, b) => a.timestamp - b.timestamp);
-        tempHistoryMap.set(historyKey, merged);
-      }
+      // Filter pending history: remove entries that this bot already saw (via shared history)
+      // and remove entries that overlap with shared history entries.
+      const sharedIds = new Set(sharedEntries.map(e => e.messageId).filter(Boolean));
+      const filteredExisting = existing.filter(e => {
+        // Remove if already in shared history
+        if (e.messageId && sharedIds.has(e.messageId)) return false;
+        // Remove if older than last seen (bot already processed these)
+        if (lastSeen > 0 && e.timestamp <= lastSeen) return false;
+        return true;
+      });
+
+      const mapped = sharedEntries.map(e => {
+        const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
+        const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
+        const prefix = isBot ? `[Bot]` : `[User]`;
+        const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
+        return {
+          sender: name,
+          body: `${prefix} ${name}: ${readableBody}`,
+          timestamp: e.timestamp,
+          messageId: e.messageId,
+        };
+      });
+
+      const merged = [...mapped, ...filteredExisting].sort((a, b) => a.timestamp - b.timestamp);
+      tempHistoryMap.set(historyKey, merged);
 
       combinedBody = buildPendingHistoryContextFromMap({
         historyMap: tempHistoryMap,
