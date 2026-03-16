@@ -416,8 +416,13 @@ function checkBotMentioned(
   const mentions = event.message.mentions ?? [];
   return (
     mentions.some(
-      (m) => m.id.open_id === normalizedBotOpenId || m.id.user_id === normalizedBotOpenId,
-    ) || postMentionIds.some((id) => id === normalizedBotOpenId)
+      (m) =>
+        m.id.open_id === normalizedBotOpenId ||
+        m.id.user_id === normalizedBotOpenId ||
+        // @all (mention everyone) counts as mentioning the bot
+        m.id.open_id === "all" ||
+        m.id.user_id === "all",
+    ) || postMentionIds.some((id) => id === normalizedBotOpenId || id === "all")
   );
 }
 

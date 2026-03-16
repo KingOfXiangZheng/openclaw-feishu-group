@@ -22,6 +22,8 @@ export function extractMentionTargets(
     .filter((m) => {
       // Exclude the bot itself
       if (botOpenId && m.id.open_id === botOpenId) return false;
+      // Exclude @all (not a real user target)
+      if (m.id.open_id === "all") return false;
       // Must have open_id
       return !!m.id.open_id;
     })
@@ -46,7 +48,7 @@ export function isMentionForwardRequest(
   if (mentions.length === 0) return false;
 
   const isDirectMessage = event.message.chat_type === "p2p";
-  const hasOtherMention = mentions.some((m) => m.id.open_id !== botOpenId);
+  const hasOtherMention = mentions.some((m) => m.id.open_id !== botOpenId && m.id.open_id !== "all");
 
   if (isDirectMessage) {
     // DM: trigger if any non-bot user is mentioned
