@@ -392,6 +392,16 @@ export function resolveBotDisplayName(id: string): string | undefined {
     if (info.accountId === id) return info.name;
   }
 
+  // Try stripping "bot_" prefix (synthetic event senders use "bot_<accountId>")
+  if (id.startsWith("bot_")) {
+    const stripped = id.slice(4);
+    const byStrippedOpenId = botRegistry.get(stripped);
+    if (byStrippedOpenId) return byStrippedOpenId.name;
+    for (const info of botRegistry.values()) {
+      if (info.accountId === stripped) return info.name;
+    }
+  }
+
   return undefined;
 }
 

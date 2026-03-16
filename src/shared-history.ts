@@ -105,13 +105,9 @@ export function buildSharedHistoryContext(
   }
   
   const lines = filtered.map(e => {
-    const name = e.senderName ?? e.sender;
     const resolvedName = resolveDisplayName(e.sender, e.senderName);
-    const prefix = e.senderType === "bot"
-        ? `[Bot:${resolvedName}]`
-        : name.startsWith("bot_")
-            ? `[Bot:${resolveDisplayName(name.slice(4), name)}]`
-            : "[User]";
+    const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
+    const prefix = isBot ? `[Bot:${resolvedName}]` : "[User]";
     return `${prefix} ${resolvedName}: ${e.body}`;
   });
   
@@ -248,13 +244,9 @@ export function buildIncrementalSharedHistoryContext(
   if (entries.length === 0) return "";
 
   const lines = entries.map(e => {
-    const name = e.senderName ?? e.sender;
     const resolvedName = resolveDisplayName(e.sender, e.senderName);
-    const prefix = e.senderType === "bot"
-      ? `[Bot:${resolvedName}]`
-      : name.startsWith("bot_")
-        ? `[Bot:${resolveDisplayName(name.slice(4), name)}]`
-        : "[User]";
+    const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
+    const prefix = isBot ? `[Bot:${resolvedName}]` : "[User]";
     return `${prefix} ${resolvedName}: ${e.body}`;
   });
 

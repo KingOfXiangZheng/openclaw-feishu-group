@@ -999,7 +999,7 @@ export async function handleFeishuMessage(params: {
                 limit: historyLimit,
                 entry: {
                   sender: ctx.senderName ?? ctx.senderOpenId,
-                  body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.content}`,
+                  body: `${ctx.senderName ?? ctx.senderOpenId}: ${ctx.rawContent}`,
                   timestamp: Date.now(),
                   messageId: ctx.messageId,
                 },
@@ -1239,7 +1239,8 @@ export async function handleFeishuMessage(params: {
             .filter(e => !existingIds.has(e.messageId))
             .map(e => {
               const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
-              const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
+              const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
+              const prefix = isBot ? `[Bot]` : `[User]`;
               // Replace <at user_id="...">Name</at> tags with readable @Name
               const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
               return {
