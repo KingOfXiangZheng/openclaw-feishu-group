@@ -721,6 +721,11 @@ export function parseFeishuMessageEvent(
       );
     }
   }
+  // Also replace <at user_id="...">Name</at> HTML tags (from synthetic bot-to-bot relay messages)
+  readableRawContent = readableRawContent.replace(
+    /<at\s+user_id="[^"]*">([^<]*)<\/at>/gi,
+    "@$1",
+  );
 
   const ctx: FeishuMessageContext = {
     chatId: event.message.chat_id,
@@ -1235,9 +1240,11 @@ export async function handleFeishuMessage(params: {
             .map(e => {
               const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
               const prefix = e.senderType === "bot" ? `[Bot]` : `[User]`;
+              // Replace <at user_id="...">Name</at> tags with readable @Name
+              const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
               return {
                 sender: name,
-                body: `${prefix} ${name}: ${e.body}`,
+                body: `${prefix} ${name}: ${readableBody}`,
                 timestamp: e.timestamp,
                 messageId: e.messageId,
               };
