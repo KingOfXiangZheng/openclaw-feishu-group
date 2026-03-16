@@ -31,7 +31,7 @@ import { maybeCreateDynamicAgent } from "./dynamic-agent.js";
 import { runWithFeishuToolContext } from "./tools-common/tool-context.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 // Shared history for cross-bot context
-import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen, shouldInjectTeammatesContext, markTeammatesContextInjected } from "./shared-history.js";
+import { recordUserMessage, buildIncrementalSharedHistoryContext, markSharedHistorySeen } from "./shared-history.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
 
@@ -1224,16 +1224,15 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    // Inject available teammates info only once per session (or when roster changes)
+    // Inject available teammates info for bot-to-bot collaboration
     if (isGroup) {
       const teammatesInfo = getTeammatesContext(account.accountId, ctx.chatId);
-      if (teammatesInfo && shouldInjectTeammatesContext(ctx.chatId, account.accountId, teammatesInfo)) {
+      if (teammatesInfo) {
         combinedBody = teammatesInfo + "\n" + combinedBody;
-        markTeammatesContextInjected(ctx.chatId, account.accountId, teammatesInfo);
       }
     }
 
-    //log(`feishu[${account.accountId}]: combinedBody ${combinedBody}`);
+    log(`feishu[${account.accountId}]: combinedBody ${combinedBody}`);
     //log(`feishu[${account.accountId}]: ctx.content ${ctx.content}`);
     const ctxPayload = core.channel.reply.finalizeInboundContext({
       Body: combinedBody,

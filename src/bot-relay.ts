@@ -65,16 +65,12 @@ export function unregisterBotFromRelay(botOpenId: string): void {
   botRegistry.delete(botOpenId);
 }
 
-import { invalidateTeammatesForGroup } from "./shared-history.js";
-
 // Per-group bot presence: tracks which bots are active in which groups.
 // Key: chatId, Value: Set of accountIds seen in that group.
 const groupPresence = new Map<string, Set<string>>();
 
 /**
  * Record that a bot is present in a group (called when bot processes a message in that group).
- * If this is a newly discovered bot in the group, invalidates teammates cache for all bots
- * in that group so they re-inject the updated roster.
  */
 export function markBotPresentInGroup(chatId: string, accountId: string): void {
   let members = groupPresence.get(chatId);
@@ -82,12 +78,7 @@ export function markBotPresentInGroup(chatId: string, accountId: string): void {
     members = new Set();
     groupPresence.set(chatId, members);
   }
-
-  if (!members.has(accountId)) {
-    members.add(accountId);
-    // New bot discovered in this group — invalidate teammates cache for all bots here
-    invalidateTeammatesForGroup(chatId, Array.from(members));
-  }
+  members.add(accountId);
 }
 
 /**
