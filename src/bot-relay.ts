@@ -116,15 +116,13 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
     "2. 提醒：",
     "   - @mention 应该遵守：若无其他需求，相互直接@mention后结束@mention，因为@mention后对方必然会回答，防止出现死循环",
     "",
-    "3. @mention 格式：<at user_id=\"openId\">名字</at>",
-    "",
-    "",
+    "3. @mention 格式：<at user_id=\"openId\">名字</at>"
   ];
 
   for (const bot of teammates) {
     lines.push(`   - 若要联系${bot.name}请按照输出： <at user_id="${bot.openId}">${bot.name}</at>`);
   }
-  lines.push("！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
+  lines.push("   ！！！请严格按照这种格式进行@mention,不要按照名字（例如@quinn）,否则对方无法收到消息！！！");
   lines.push("");
 
 
