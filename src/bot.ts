@@ -384,7 +384,8 @@ function parseMessageContent(content: string, messageType: string): string {
       return textContent;
     }
     if (["image", "file", "audio", "video", "sticker"].includes(normalizedMessageType)) {
-      return inferPlaceholder(normalizedMessageType);
+      const fileName = parsed.file_name as string | undefined;
+      return inferPlaceholder(normalizedMessageType, fileName);
     }
     return content;
   } catch {
@@ -535,22 +536,24 @@ function parsePostContent(content: string): {
 
 /**
  * Infer placeholder text based on message type.
+ * Includes file name when available for better context.
  */
-function inferPlaceholder(messageType: string): string {
+function inferPlaceholder(messageType: string, fileName?: string): string {
+  const suffix = fileName ? ` ${fileName}` : "";
   switch (messageType) {
     case "image":
-      return "<media:image>";
+      return `<media:image${suffix}>`;
     case "file":
-      return "<media:document>";
+      return `<media:document${suffix}>`;
     case "audio":
-      return "<media:audio>";
+      return `<media:audio${suffix}>`;
     case "video":
     case "media":
-      return "<media:video>";
+      return `<media:video${suffix}>`;
     case "sticker":
       return "<media:sticker>";
     default:
-      return "<media:document>";
+      return `<media:document${suffix}>`;
   }
 }
 
@@ -673,7 +676,7 @@ async function resolveFeishuMediaList(params: {
     out.push({
       path: saved.path,
       contentType: saved.contentType,
-      placeholder: inferPlaceholder(normalizedMessageType),
+      placeholder: inferPlaceholder(normalizedMessageType, mediaKeys.fileName),
     });
 
     log?.(`feishu: downloaded ${normalizedMessageType} media, saved to ${saved.path}`);

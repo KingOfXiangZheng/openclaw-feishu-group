@@ -168,11 +168,11 @@ channels:
 - 群聊：`@bot @张三 说你好` → 机器人回复自动 @张三
 - 私聊：`@张三 说你好` → 机器人回复自动 @张三
 
-### 7. @mention 名字保留
+### 6. @mention 名字保留
 
 群聊历史中会保留 @mention 的实际名字，而不是显示 `@_user_1` 这样的占位符。例如用户发送 `@Quinn 你好`，历史中会显示 `@Quinn 你好` 而不是 `@_user_1 你好`。
 
-### 8. 话题隔离会话
+### 7. 话题隔离会话
 
 群聊支持按话题（thread）隔离会话，同一个群里不同话题的对话互不干扰：
 
@@ -183,6 +183,26 @@ channels:
       oc_xxx:
         topicSessionMode: "enabled"
 ```
+
+### 8. 对话流程日志
+
+系统会按群自动记录结构化的对话流程日志，存储在 `~/.openclaw/flow-logs/<chatId>.log`。
+
+每行包含时间戳、发送人、接收人、触发类型和消息内容预览（前10字）：
+
+```
+[2026-03-17 14:30:05] 刘湘政 → Alex (mention) @产品Alex 让a...
+[2026-03-17 14:30:06] Alex replied 收到，boss！👋...
+[2026-03-17 14:30:06] Alex → @Nova (relay) 你好 Nova，我...
+[2026-03-17 14:30:07] Nova replied 收到！技术方案...
+```
+
+触发类型说明：
+- `mention` — 用户 @机器人
+- `group` — 群消息（未 @）
+- `DM` — 私聊
+- `relay` — bot-to-bot 转发
+- `skip` — 未被 @，跳过处理
 
 ---
 
@@ -218,6 +238,7 @@ channels:
     groupCommandMentionBypass: "single_bot"  # "never" | "single_bot" | "always"
     mediaMaxMb: 30
     renderMode: "auto"            # "auto" | "raw" | "card"
+    maxRelayDepth: 5              # bot-to-bot relay 最大深度（默认 5）
 
     # 多账号（多机器人）配置
     accounts:
