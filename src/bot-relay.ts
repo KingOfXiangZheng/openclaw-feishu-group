@@ -405,3 +405,11 @@ export function resolveBotDisplayName(id: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Get bot log name for logging purposes.
+ * Returns the registered bot name if available, otherwise falls back to accountName or accountId.
+ */
+export function getBotLogName(accountId: string, accountName?: string): string {
+  return resolveBotDisplayName(accountId) ?? accountName ?? accountId;
+}
+

@@ -19,6 +19,7 @@ import {
   listFeishuDirectoryGroupsLive,
 } from "./directory.js";
 import { feishuOnboardingAdapter } from "./onboarding.js";
+import { getBotLogName } from "./bot-relay.js";
 
 const meta = {
   id: "feishu",
@@ -324,7 +325,7 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount> = {
       const account = resolveFeishuAccount({ cfg: ctx.cfg, accountId: ctx.accountId });
       const port = account.config?.webhookPort ?? null;
       ctx.setStatus({ accountId: ctx.accountId, port });
-      ctx.log?.info(`starting feishu[${ctx.accountId}] (mode: ${account.config?.connectionMode ?? "websocket"})`);
+      ctx.log?.info(`starting feishu[${getBotLogName(ctx.accountId, account.name)}] (mode: ${account.config?.connectionMode ?? "websocket"})`);
       return monitorFeishuProvider({
         config: ctx.cfg,
         runtime: ctx.runtime,

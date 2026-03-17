@@ -17,6 +17,7 @@ import { resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 import { recordBotReply } from "./shared-history.js";
 import { triggerBotRelay } from "./bot-relay.js";
+import { getBotLogName } from "./bot-relay.js";
 import { flowReplied } from "./flow-log.js";
 
 /** Detect if text contains markdown elements that benefit from card rendering */
@@ -108,7 +109,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       }
 
       streaming = new FeishuStreamingSession(createFeishuClient(account), creds, (message) =>
-        params.runtime.log?.(`feishu[${account.accountId}] ${message}`),
+        params.runtime.log?.(`feishu[${getBotLogName(account.accountId, account.name)}] ${message}`),
       );
       try {
         await streaming.start(chatId, resolveReceiveIdType(chatId), replyToMessageId);
@@ -262,7 +263,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
       },
       onError: async (error, info) => {
         params.runtime.error?.(
-          `feishu[${account.accountId}] ${info.kind} reply failed: ${String(error)}`,
+          `feishu[${getBotLogName(account.accountId, account.name)}] ${info.kind} reply failed: ${String(error)}`,
         );
         await closeStreaming();
         typingCallbacks.onIdle?.();

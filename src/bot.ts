@@ -38,6 +38,11 @@ import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
 // Per-group flow log files
 import { flowReceived } from "./flow-log.js";
 
+// Helper to get bot display name for logging
+function getBotLogName(accountId: string, accountName?: string): string {
+  return resolveBotDisplayName(accountId) ?? accountName ?? accountId;
+}
+
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
 type PermissionError = {
@@ -324,7 +329,7 @@ async function resolveFeishuGroupBotCount(params: {
     }
     return undefined;
   } catch (err) {
-    log(`feishu[${account.accountId}]: failed to resolve bot_count for ${chatId}: ${String(err)}`);
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: failed to resolve bot_count for ${chatId}: ${String(err)}`);
     return undefined;
   }
 }
@@ -826,7 +831,7 @@ export async function handleFeishuMessage(params: {
     }
   }
 
-  log(`feishu[${account.accountId}]: received message from ${ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
+  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received message from ${ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
 
   // === Flow log: structured conversation flow tracking ===
   const botName = account.name ?? account.accountId;
@@ -841,7 +846,7 @@ export async function handleFeishuMessage(params: {
   // Log mention targets if detected
   if (ctx.mentionTargets && ctx.mentionTargets.length > 0) {
     const names = ctx.mentionTargets.map((t) => t.name).join(", ");
-    log(`feishu[${account.accountId}]: detected @ forward request, targets: [${names}]`);
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: detected @ forward request, targets: [${names}]`);
   }
 
   const historyLimit = Math.max(
@@ -889,7 +894,7 @@ export async function handleFeishuMessage(params: {
           senderName: ctx.senderName,
         });
         if (created) {
-          log(`feishu[${account.accountId}]: pairing request sender=${ctx.senderOpenId}`);
+          log(`feishu[${getBotLogName(account.accountId, account.name)}]: pairing request sender=${ctx.senderOpenId}`);
           try {
             await sendMessageFeishu({
               cfg,
@@ -903,13 +908,13 @@ export async function handleFeishuMessage(params: {
             });
           } catch (err) {
             log(
-              `feishu[${account.accountId}]: pairing reply failed for ${ctx.senderOpenId}: ${String(err)}`,
+              `feishu[${getBotLogName(account.accountId, account.name)}]: pairing reply failed for ${ctx.senderOpenId}: ${String(err)}`,
             );
           }
         }
       } else {
         log(
-          `feishu[${account.accountId}]: blocked unauthorized sender ${ctx.senderOpenId} (dmPolicy=${dmPolicy})`,
+          `feishu[${getBotLogName(account.accountId, account.name)}]: blocked unauthorized sender ${ctx.senderOpenId} (dmPolicy=${dmPolicy})`,
         );
       }
       return;
@@ -937,7 +942,7 @@ export async function handleFeishuMessage(params: {
 
     if (isGroup) {
       if (groupConfig?.enabled === false) {
-        log(`feishu[${account.accountId}]: group ${ctx.chatId} is disabled`);
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: group ${ctx.chatId} is disabled`);
         return;
       }
 
@@ -953,7 +958,7 @@ export async function handleFeishuMessage(params: {
       });
 
       if (!groupAllowed) {
-        log(`feishu[${account.accountId}]: group ${ctx.chatId} not in groupAllowFrom (groupPolicy=${groupPolicy})`);
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: group ${ctx.chatId} not in groupAllowFrom (groupPolicy=${groupPolicy})`);
         return;
       }
 
@@ -994,7 +999,7 @@ export async function handleFeishuMessage(params: {
           bypassAllowedByPolicy = botCount !== undefined && botCount <= 1;
           if (botCount === undefined) {
             log(
-              `feishu[${account.accountId}]: unable to resolve bot count for ${ctx.chatId}, command mention bypass disabled`,
+              `feishu[${getBotLogName(account.accountId, account.name)}]: unable to resolve bot count for ${ctx.chatId}, command mention bypass disabled`,
             );
           }
         }
@@ -1013,7 +1018,7 @@ export async function handleFeishuMessage(params: {
 
         if (mentionGate.shouldSkip) {
           log(
-            `feishu[${account.accountId}]: message in group ${ctx.chatId} skipped (mention required)`,
+            `feishu[${getBotLogName(account.accountId, account.name)}]: message in group ${ctx.chatId} skipped (mention required)`,
           );
           flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: "skip", content: ctx.content });
           if (chatHistories) {
@@ -1056,7 +1061,7 @@ export async function handleFeishuMessage(params: {
       if (topicSessionMode === "enabled") {
         // Use chatId:topic:rootId as peer ID for topic-scoped sessions
         peerId = `${ctx.chatId}:topic:${ctx.rootId}`;
-        log(`feishu[${account.accountId}]: topic session isolation enabled, peer=${peerId}`);
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: topic session isolation enabled, peer=${peerId}`);
       }
     }
 
@@ -1094,7 +1099,7 @@ export async function handleFeishuMessage(params: {
             accountId: account.accountId,
             peer: { kind: "direct", id: ctx.senderOpenId },
           });
-          log(`feishu[${account.accountId}]: dynamic agent created, new route: ${route.sessionKey}`);
+          log(`feishu[${getBotLogName(account.accountId, account.name)}]: dynamic agent created, new route: ${route.sessionKey}`);
         }
       }
     }
@@ -1132,10 +1137,10 @@ export async function handleFeishuMessage(params: {
         const quotedMsg = await getMessageFeishu({ cfg, messageId: ctx.parentId, accountId: account.accountId });
         if (quotedMsg) {
           quotedContent = quotedMsg.content;
-          log(`feishu[${account.accountId}]: fetched quoted message: ${quotedContent?.slice(0, 100)}`);
+          log(`feishu[${getBotLogName(account.accountId, account.name)}]: fetched quoted message: ${quotedContent?.slice(0, 100)}`);
         }
       } catch (err) {
-        log(`feishu[${account.accountId}]: failed to fetch quoted message: ${String(err)}`);
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: failed to fetch quoted message: ${String(err)}`);
       }
     }
 
@@ -1205,7 +1210,7 @@ export async function handleFeishuMessage(params: {
           accountId: account.accountId,
         });
 
-      log(`feishu[${account.accountId}]: dispatching permission error notification to agent`);
+      log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatching permission error notification to agent`);
 
       await runWithFeishuToolContext(
         {
@@ -1330,8 +1335,8 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    log(`feishu[${account.accountId}]: combinedBody ${combinedBody}`);
-    //log(`feishu[${account.accountId}]: ctx.content ${ctx.content}`);
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: combinedBody ${combinedBody}`);
+    //log(`feishu[${getBotLogName(account.accountId, account.name)}]: ctx.content ${ctx.content}`);
     const ctxPayload = core.channel.reply.finalizeInboundContext({
       Body: combinedBody,
       RawBody: combinedBody,
@@ -1367,7 +1372,7 @@ export async function handleFeishuMessage(params: {
       relayChain: isSyntheticEvent ? relayChain : [],
     });
 
-    log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatching to agent (session=${route.sessionKey})`);
 
     const { queuedFinal, counts } = await runWithFeishuToolContext(
       {
@@ -1404,8 +1409,8 @@ export async function handleFeishuMessage(params: {
       });
     }
 
-    log(`feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`);
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`);
   } catch (err) {
-    error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);
+    error(`feishu[${getBotLogName(account.accountId, account.name)}]: failed to dispatch message: ${String(err)}`);
   }
 }
