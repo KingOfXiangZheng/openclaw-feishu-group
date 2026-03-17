@@ -11,6 +11,7 @@
 import type { ClawdbotConfig, RuntimeEnv, HistoryEntry } from "openclaw/plugin-sdk";
 import type { FeishuMessageEvent } from "./bot.js";
 import { handleFeishuMessage } from "./bot.js";
+import { flowRelay } from "./flow-log.js";
 
 // Bot registry: maps bot OpenID to { accountId, name, specialty }
 interface BotInfo {
@@ -321,6 +322,8 @@ export function triggerBotRelay(params: {
   for (const mention of botMentions) {
     const targetAccountId = getBotAccountId(mention.openId);
     if (!targetAccountId) continue;
+
+    flowRelay({ chatId, from: sourceBotName, to: mention.name, content: messageText });
 
     const syntheticEvent: FeishuMessageEvent = {
       message: {

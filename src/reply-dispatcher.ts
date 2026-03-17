@@ -17,6 +17,7 @@ import { resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 import { recordBotReply } from "./shared-history.js";
 import { triggerBotRelay } from "./bot-relay.js";
+import { flowReplied } from "./flow-log.js";
 
 /** Detect if text contains markdown elements that benefit from card rendering */
 function shouldUseCard(text: string): boolean {
@@ -210,6 +211,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             botName,
             body: text,
           });
+
+          flowReplied({ chatId, botName, content: text });
 
           // Trigger Bot-to-Bot relay: send synthetic events to mentioned bots
           triggerBotRelay({

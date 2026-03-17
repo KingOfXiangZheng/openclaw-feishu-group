@@ -35,6 +35,8 @@ import { recordUserMessage, getIncrementalSharedHistoryEntries, markSharedHistor
 import { resolveBotDisplayName } from "./bot-relay.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
+// Per-group flow log files
+import { flowReceived, flowReplied } from "./flow-log.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -822,6 +824,16 @@ export async function handleFeishuMessage(params: {
 
   log(`feishu[${account.accountId}]: received message from ${ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
 
+  // === Flow log: structured conversation flow tracking ===
+  const botName = account.name ?? account.accountId;
+  const senderLabel = ctx.senderName ?? ctx.senderOpenId;
+  if (isSyntheticEvent) {
+    flowReceived({ chatId: ctx.chatId, sender: syntheticSourceBot ?? "unknown", receiver: botName, type: "relay", content: ctx.content, triggeredBy: syntheticSourceBot });
+  } else if (isGroup) {
+    flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: ctx.mentionedBot ? "mention" : "group", content: ctx.content });
+  } else {
+    flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: "DM", content: ctx.content });
+  }
   // Log mention targets if detected
   if (ctx.mentionTargets && ctx.mentionTargets.length > 0) {
     const names = ctx.mentionTargets.map((t) => t.name).join(", ");
@@ -999,6 +1011,7 @@ export async function handleFeishuMessage(params: {
           log(
             `feishu[${account.accountId}]: message in group ${ctx.chatId} skipped (mention required)`,
           );
+          flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: "skip", content: ctx.content });
           if (chatHistories) {
             // Avoid duplicate entries when multiple bots skip the same message
             const existingEntries = chatHistories.get(ctx.chatId) ?? [];
@@ -1383,6 +1396,11 @@ export async function handleFeishuMessage(params: {
     }
 
     log(`feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`);
+    if (isSyntheticEvent) {
+      flowReplied({ chatId: ctx.chatId, botName, triggeredBy: syntheticSourceBot ?? "unknown", content: ctx.content });
+    } else {
+      flowReplied({ chatId: ctx.chatId, botName, content: ctx.content });
+    }
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);
   }
