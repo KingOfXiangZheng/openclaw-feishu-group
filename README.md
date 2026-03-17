@@ -17,7 +17,7 @@ git clone https://github.com/KingOfXiangZheng/openclaw-feishu-group.git
 npm install
 
 # 配置
-
+```bash
 "feishu": {
   "groups": {
     "oc_xxx": {
@@ -40,7 +40,7 @@ npm install
       }
     }
 },
-
+```
 ## 核心功能
 
 ### 基础能力
