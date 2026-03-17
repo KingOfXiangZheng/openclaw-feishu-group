@@ -164,6 +164,29 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           if (info?.kind === "final") {
             streamText = text;
             await closeStreaming();
+
+            // Record bot reply and trigger relay even in streaming mode
+            if (chatId.startsWith("oc_")) {
+              const botName = account.name ?? accountId;
+
+              recordBotReply({
+                chatId,
+                messageId: `bot_${Date.now()}_${accountId}`,
+                botAccountId: accountId,
+                botName,
+                body: text,
+              });
+
+              flowReplied({ chatId, botName, content: text });
+
+              triggerBotRelay({
+                sourceAccountId: accountId,
+                sourceBotName: botName,
+                chatId,
+                messageText: text,
+                relayChain,
+              });
+            }
           }
           return;
         }
