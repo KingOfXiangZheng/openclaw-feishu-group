@@ -102,7 +102,7 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
 
   const teammateList = teammates
       .map(bot =>
-          `${bot.name}（${bot.specialty ?? "通用"}） <at user_id="${bot.openId}">${bot.name}</at>`
+          `${bot.name}（${bot.specialty ?? "通用"}）@mention 格式： <at user_id="${bot.openId}">${bot.name}</at>`
       )
       .join("\n");
 
@@ -114,10 +114,8 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
     "",
     "⚠️ 重要规则：",
     "",
-    "2. 提醒：",
-    "   - @mention 应该遵守：若无其他需求，相互直接@mention后结束@mention，因为@mention后对方必然会回答，防止出现死循环",
     "",
-    "3. @mention 格式：<at user_id=\"openId\">名字</at>"
+    "@mention 格式：<at user_id=\"openId\">名字</at>"
   ];
 
   for (const bot of teammates) {
