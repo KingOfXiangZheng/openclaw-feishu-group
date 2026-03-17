@@ -1,4 +1,4 @@
-# clawd-feishu
+# openclaw-feishu-group （飞书群聊插件）
 
 飞书 (Feishu/Lark) 频道插件，用于 [OpenClaw](https://github.com/openclaw/openclaw)。
 
