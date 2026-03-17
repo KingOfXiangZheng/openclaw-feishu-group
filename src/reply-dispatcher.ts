@@ -32,11 +32,13 @@ export type CreateFeishuReplyDispatcherParams = {
   replyToMessageId?: string;
   mentionTargets?: MentionTarget[];
   accountId?: string;
+  relayChain?: string[];
 };
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
   const core = getFeishuRuntime();
   const { cfg, agentId, chatId, replyToMessageId, mentionTargets, accountId } = params;
+  const relayChain = params.relayChain ?? [];
   const account = resolveFeishuAccount({ cfg, accountId });
   const prefixContext = createReplyPrefixContext({ cfg, agentId });
 
@@ -220,6 +222,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
             sourceBotName: botName,
             chatId,
             messageText: text,
+            relayChain,
           });
         }
       },

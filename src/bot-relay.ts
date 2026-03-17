@@ -296,20 +296,31 @@ export function triggerBotRelay(params: {
   chatId: string;
   messageText: string;
   originalMessageId?: string;
+  relayChain?: string[];
 }): void {
   if (!relayConfig || !relayChatHistories) {
     return;
   }
 
   const { sourceAccountId, sourceBotName, chatId, messageText } = params;
+  const relayChain = params.relayChain ?? [];
+  const feishuCfg = (relayConfig as any)?.channels?.feishu;
+  const groupCfg = feishuCfg?.groups?.[chatId];
+  const maxRelayDepth = groupCfg?.maxRelayDepth ?? feishuCfg?.maxRelayDepth ?? 5;
   const mentions = parseMentionTags(messageText);
   
-  // Find bots that were mentioned (ignore self)
+  // Find bots that were mentioned (ignore self; stop relay if chain is too deep to prevent loops)
+  if (relayChain.length >= maxRelayDepth) {
+    relayRuntime?.log?.(`bot-relay: relay chain depth ${relayChain.length} >= ${maxRelayDepth}, stopping relay from ${sourceBotName}`);
+    return;
+  }
+
   const botMentions = mentions.filter(m => {
     if (!isBotOpenId(m.openId)) return false;
     const targetAccountId = getBotAccountId(m.openId);
     if (!targetAccountId) return false;
-    return targetAccountId !== sourceAccountId;
+    if (targetAccountId === sourceAccountId) return false;
+    return true;
   });
 
   if (botMentions.length === 0) {
@@ -341,7 +352,8 @@ export function triggerBotRelay(params: {
       _synthetic: true,
       _sourceBot: sourceAccountId,
       _sourceBotName: sourceBotName,
-    } as FeishuMessageEvent & { _synthetic?: boolean; _sourceBot?: string; _sourceBotName?: string };
+      _relayChain: [...relayChain, sourceAccountId],
+    } as FeishuMessageEvent & { _synthetic?: boolean; _sourceBot?: string; _sourceBotName?: string; _relayChain?: string[] };
 
     try {
       handleFeishuMessage({

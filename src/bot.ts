@@ -36,7 +36,7 @@ import { resolveBotDisplayName } from "./bot-relay.js";
 // Bot-to-Bot relay for teammate discovery
 import { getTeammatesContext, markBotPresentInGroup } from "./bot-relay.js";
 // Per-group flow log files
-import { flowReceived, flowReplied } from "./flow-log.js";
+import { flowReceived } from "./flow-log.js";
 
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
@@ -800,6 +800,7 @@ export async function handleFeishuMessage(params: {
   const isSyntheticEvent = (event as any)._synthetic === true;
   const syntheticSourceBot = (event as any)._sourceBotName as string | undefined;
   const syntheticSourceAccountId = (event as any)._sourceBot as string | undefined;
+  const relayChain = ((event as any)._relayChain as string[] | undefined) ?? [];
 
   // Resolve sender display name (best-effort) so the agent can attribute messages correctly.
   const senderResult = await resolveFeishuSenderName({
@@ -828,7 +829,7 @@ export async function handleFeishuMessage(params: {
   const botName = account.name ?? account.accountId;
   const senderLabel = ctx.senderName ?? ctx.senderOpenId;
   if (isSyntheticEvent) {
-    flowReceived({ chatId: ctx.chatId, sender: syntheticSourceBot ?? "unknown", receiver: botName, type: "relay", content: ctx.content, triggeredBy: syntheticSourceBot });
+    // relay receive is already logged by bot-relay.ts flowRelay — skip here
   } else if (isGroup) {
     flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: ctx.mentionedBot ? "mention" : "group", content: ctx.content });
   } else {
@@ -1360,6 +1361,7 @@ export async function handleFeishuMessage(params: {
       replyToMessageId: isSyntheticEvent ? undefined : ctx.messageId,
       mentionTargets: ctx.mentionTargets,
       accountId: account.accountId,
+      relayChain: isSyntheticEvent ? [...relayChain, account.accountId] : [],
     });
 
     log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
@@ -1396,11 +1398,6 @@ export async function handleFeishuMessage(params: {
     }
 
     log(`feishu[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`);
-    if (isSyntheticEvent) {
-      flowReplied({ chatId: ctx.chatId, botName, triggeredBy: syntheticSourceBot ?? "unknown", content: ctx.content });
-    } else {
-      flowReplied({ chatId: ctx.chatId, botName, content: ctx.content });
-    }
   } catch (err) {
     error(`feishu[${account.accountId}]: failed to dispatch message: ${String(err)}`);
   }

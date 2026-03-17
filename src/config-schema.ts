@@ -112,6 +112,7 @@ export const FeishuGroupSchema = z
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     systemPrompt: z.string().optional(),
     topicSessionMode: TopicSessionModeSchema,
+    maxRelayDepth: z.number().int().min(0).optional(),
   })
   .strict();
 
@@ -194,6 +195,8 @@ export const FeishuConfigSchema = z
     tools: FeishuToolsConfigSchema,
     // Dynamic agent creation for DM users
     dynamicAgentCreation: DynamicAgentCreationSchema,
+    // Max relay depth for bot-to-bot @mention chains (default: 5)
+    maxRelayDepth: z.number().int().min(0).optional(),
     // Multi-account configuration
     accounts: z.record(z.string(), FeishuAccountConfigSchema.optional()).optional(),
   })
