@@ -1387,8 +1387,12 @@ export async function handleFeishuMessage(params: {
 
     markDispatchIdle();
 
-    // Mark shared history as seen so next time we only inject incremental updates
-    if (isGroup && ctx.chatId) {
+    // Mark shared history as seen so next time we only inject incremental updates.
+    // Only update when the dispatch actually produced a reply (queuedFinal=true).
+    // When queuedFinal=false the message was merged into an already-running session
+    // and this dispatch did not consume any shared history, so advancing the cursor
+    // would incorrectly skip entries that the real dispatch still needs to see.
+    if (isGroup && ctx.chatId && queuedFinal) {
       markSharedHistorySeen(ctx.chatId, account.accountId);
     }
 

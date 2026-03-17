@@ -299,14 +299,7 @@ export function triggerBotRelay(params: {
   const relayChain = params.relayChain ?? [];
   const feishuCfg = (relayConfig as any)?.channels?.feishu;
   const groupCfg = feishuCfg?.groups?.[chatId];
-  const maxRelayDepth = groupCfg?.maxRelayDepth ?? feishuCfg?.maxRelayDepth ?? 5;
   const mentions = parseMentionTags(messageText);
-  
-  // Find bots that were mentioned (ignore self; stop relay if chain is too deep to prevent loops)
-  if (relayChain.length >= maxRelayDepth) {
-    relayRuntime?.log?.(`bot-relay: relay chain depth ${relayChain.length} >= ${maxRelayDepth}, stopping relay from ${sourceBotName}`);
-    return;
-  }
 
   const botMentions = mentions.filter(m => {
     if (!isBotOpenId(m.openId)) return false;
@@ -316,14 +309,23 @@ export function triggerBotRelay(params: {
     return true;
   });
 
-  if (botMentions.length === 0) {
+  // Deduplicate by openId — parseMentionTags may return duplicates
+  // when the same bot is @mentioned multiple times in one message.
+  const seen = new Set<string>();
+  const uniqueBotMentions = botMentions.filter(m => {
+    if (seen.has(m.openId)) return false;
+    seen.add(m.openId);
+    return true;
+  });
+
+  if (uniqueBotMentions.length === 0) {
     return;
   }
 
-  relayRuntime?.log?.(`bot-relay: ${sourceBotName} mentioned ${botMentions.length} bot(s): ${botMentions.map(m => m.name).join(", ")}`);
+  relayRuntime?.log?.(`bot-relay: ${sourceBotName} mentioned ${uniqueBotMentions.length} bot(s): ${uniqueBotMentions.map(m => m.name).join(", ")}`);
 
   // Trigger each mentioned bot with a synthetic event
-  for (const mention of botMentions) {
+  for (const mention of uniqueBotMentions) {
     const targetAccountId = getBotAccountId(mention.openId);
     if (!targetAccountId) continue;
 
