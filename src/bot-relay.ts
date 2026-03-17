@@ -107,14 +107,9 @@ export function getTeammatesContext(excludeAccountId?: string, chatId?: string):
       .join("\n");
 
   const lines = [
-    "",
     "[System: 群内其他 AI 队友]",
-    "",
     teammateList,
-    "",
     "⚠️ 重要规则：",
-    "",
-    "",
     "@mention 格式：<at user_id=\"openId\">名字</at>"
   ];
 
