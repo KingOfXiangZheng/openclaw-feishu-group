@@ -40,17 +40,6 @@ npm install
       }
     }
 },
- 
-
-```
-
-> Windows 如果 `openclaw plugins install` 失败，可手动下载 tarball 安装：
-> ```bash
-> npm pack @m1heng-clawd/feishu
-> openclaw plugins install ./m1heng-clawd-feishu-<version>.tgz
-> ```
-
----
 
 ## 核心功能
 
