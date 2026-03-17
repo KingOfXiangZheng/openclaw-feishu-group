@@ -9,14 +9,39 @@
 ## 安装与升级
 
 ```bash
-# 安装
-openclaw plugins install @m1heng-clawd/feishu
+# 安装 在openclaw的extension目录下
+cd ~/.openclaw/extension
+git clone https://github.com/KingOfXiangZheng/openclaw-feishu-group.git
 
-# 升级
-openclaw plugins update feishu
+# 安装依赖
+npm install
 
-# 查看版本
-openclaw plugins list | rg -i feishu
+# 配置
+
+"feishu": {
+  "groups": {
+    "oc_xxx": {
+      "enabled": true,
+      "requireMention": true,
+      "allowFrom": [
+        "*"
+      ],
+      "groupSessionScope": "group",
+      "maxRelayDepth": 20 # 机器人直接交互的深度默认5
+    }
+  },
+  "defaultAccount": "cli_a92490cee8b85cc7",
+  "accounts": {
+      "cli_a92490cee8b85cc7": {
+          "appId": "******",
+          "appSecret": "******",
+          "name": "机器人显示的名字，建议和绑定的agent名字保存一致",
+          "specialty": "机器人角色，如：产品经理, 产品规划、需求分析、任务分配、架构讨论、跨团队沟通"
+      }
+    }
+},
+ 
+
 ```
 
 > Windows 如果 `openclaw plugins install` 失败，可手动下载 tarball 安装：
