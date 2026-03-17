@@ -1364,7 +1364,7 @@ export async function handleFeishuMessage(params: {
       replyToMessageId: isSyntheticEvent ? undefined : ctx.messageId,
       mentionTargets: ctx.mentionTargets,
       accountId: account.accountId,
-      relayChain: isSyntheticEvent ? [...relayChain, account.accountId] : [],
+      relayChain: isSyntheticEvent ? relayChain : [],
     });
 
     log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
