@@ -90,6 +90,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   let lastPartial = "";
   let partialUpdateQueue: Promise<void> = Promise.resolve();
   let streamingStartPromise: Promise<void> | null = null;
+  // Track the last text recorded to shared history to avoid duplicates
+  // when deliver is called multiple times (block + final) with overlapping content.
+  let lastRecordedText = "";
 
   const startStreaming = () => {
     if (!streamingEnabled || streamingStartPromise || streaming) {
@@ -163,9 +166,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         if (streaming?.isActive()) {
           if (info?.kind === "final") {
             streamText = text;
-            await closeStreaming();
 
-            // Record bot reply and trigger relay even in streaming mode
+            // Record bot reply BEFORE closeStreaming so that a streaming-close
+            // failure does not prevent the entry from being persisted.
             if (chatId.startsWith("oc_")) {
               const botName = account.name ?? accountId;
 
@@ -187,6 +190,8 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
                 relayChain,
               });
             }
+
+            await closeStreaming();
           }
           return;
         }
@@ -225,8 +230,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
         // Record bot reply to shared history (for cross-bot context)
         // Only record for group chats (chatId starts with "oc_")
-        // Only record on "final" delivery to avoid duplicates from block+final calls
-        if (chatId.startsWith("oc_") && (!info?.kind || info.kind === "final")) {
+        // Record on every deliver call (block or final) so no reply is lost.
+        // Skip if the text is identical to the last recorded text (block→final overlap).
+        if (chatId.startsWith("oc_") && text !== lastRecordedText) {
           const botName = account.name ?? accountId;
 
           recordBotReply({
@@ -239,14 +245,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
 
           flowReplied({ chatId, botName, content: text });
 
-          // Trigger Bot-to-Bot relay: send synthetic events to mentioned bots
-          triggerBotRelay({
-            sourceAccountId: accountId,
-            sourceBotName: botName,
-            chatId,
-            messageText: text,
-            relayChain,
-          });
+          // Trigger Bot-to-Bot relay only on final delivery (or when no kind is specified)
+          // to avoid triggering relay prematurely on block deliveries.
+          if (!info?.kind || info.kind === "final") {
+            triggerBotRelay({
+              sourceAccountId: accountId,
+              sourceBotName: botName,
+              chatId,
+              messageText: text,
+              relayChain,
+            });
+          }
+
+          lastRecordedText = text;
         }
       },
       onError: async (error, info) => {
