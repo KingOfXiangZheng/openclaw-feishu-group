@@ -1362,18 +1362,24 @@ export async function handleFeishuMessage(params: {
         log(`feishu[${getBotLogName(account.accountId, account.name)}]: message enqueued for batch (session=${route.sessionKey})`);
         await batchResult.waitForBatch;
         // Batched message was dispatched by the lock holder — we're done.
+        // Do NOT advance the shared history cursor here: the lock holder already
+        // consumed shared history and will mark its own snapshot time.
         markDispatchIdle();
-        if (isGroup && ctx.chatId) {
-          markSharedHistorySeen(ctx.chatId, account.accountId);
-        }
         return;
       }
     }
+
+    let sharedHistoryReadTime = 0; // captured inside lock, used for markSharedHistorySeen
 
     const { queuedFinal, counts } = await withSessionLock(route.sessionKey, async () => {
       log(`feishu[${getBotLogName(account.accountId, account.name)}]: lock acquired (session=${route.sessionKey})`);
       // Drain any batched messages that arrived while we were waiting for the lock.
       const batchedMessages = drainBatchMessages(route.sessionKey);
+
+      // Capture the snapshot time BEFORE reading shared history.
+      // This is the timestamp we'll use for markSharedHistorySeen, so entries
+      // written during the dispatch window won't be accidentally skipped.
+      sharedHistoryReadTime = Date.now();
 
       // Rebuild context inside the lock so that shared history includes
       // all batched bot replies (they were already written via recordBotReply).
@@ -1496,11 +1502,11 @@ export async function handleFeishuMessage(params: {
 
     markDispatchIdle();
 
-    // Mark shared history as seen so next time we only inject incremental updates.
-    // With session lock preventing merges, every dispatch is independent,
-    // so we always advance the cursor.
-    if (isGroup && ctx.chatId) {
-      markSharedHistorySeen(ctx.chatId, account.accountId);
+    // Mark shared history as seen using the snapshot time from WHEN we read it
+    // (inside the lock, before dispatch), not the current time.
+    // This prevents skipping entries written by other bots during our dispatch.
+    if (isGroup && ctx.chatId && sharedHistoryReadTime > 0) {
+      markSharedHistorySeen(ctx.chatId, account.accountId, sharedHistoryReadTime);
     }
 
     if (isGroup && historyKey && chatHistories) {

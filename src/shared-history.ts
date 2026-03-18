@@ -148,9 +148,9 @@ function lastSeenKey(chatId: string, botAccountId: string): string {
  * Mark the current timestamp as "seen" for a bot in a chat.
  * Persisted to disk so it survives restarts.
  */
-export function markSharedHistorySeen(chatId: string, botAccountId: string): void {
+export function markSharedHistorySeen(chatId: string, botAccountId: string, timestamp?: number): void {
   const map = loadLastSeen();
-  map[lastSeenKey(chatId, botAccountId)] = Date.now();
+  map[lastSeenKey(chatId, botAccountId)] = timestamp ?? Date.now();
   saveLastSeen();
 }
 
