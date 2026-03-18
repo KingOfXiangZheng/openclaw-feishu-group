@@ -902,9 +902,9 @@ export async function handleFeishuMessage(params: {
   const isGroupSkipCandidate = isGroup && !ctx.mentionedBot && !isSyntheticEvent;
 
   // Only log received messages when this bot will actually process them.
-  if (!isGroupSkipCandidate) {
-    log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType}) content: ${ctx.rawContent}`);
-  }
+  //if (!isGroupSkipCandidate) {
+  //  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType}) content: ${ctx.rawContent}`);
+  //}
 
   // === Flow log: structured conversation flow tracking ===
   const botName = account.name ?? account.accountId;
