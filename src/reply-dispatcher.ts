@@ -267,8 +267,9 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         }
       },
       onError: async (error, info) => {
+        const errDetail = (error as any)?.response?.data ? ` detail=${JSON.stringify((error as any).response.data)}` : "";
         params.runtime.error?.(
-          `feishu[${getBotLogName(account.accountId, account.name)}] ${info.kind} reply failed: ${String(error)}`,
+          `feishu[${getBotLogName(account.accountId, account.name)}] ${info.kind} reply failed: ${String(error)}${errDetail}`,
         );
         await closeStreaming();
         typingCallbacks.onIdle?.();
