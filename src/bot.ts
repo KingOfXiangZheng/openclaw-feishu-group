@@ -891,7 +891,7 @@ export async function handleFeishuMessage(params: {
     }
   }
 
-  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
+  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType}) content: ${ctx.rawContent}`);
 
   // === Flow log: structured conversation flow tracking ===
   const botName = account.name ?? account.accountId;
