@@ -1444,6 +1444,8 @@ export async function handleFeishuMessage(params: {
         log(`feishu[${getBotLogName(account.accountId, account.name)}]: batched ${batchedMessages.length} message(s) into dispatch via shared history`);
       }
 
+      log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatchBody ${dispatchBody}`);
+
       // Build final payload with fresh context
       const freshCtxPayload = core.channel.reply.finalizeInboundContext({
         Body: dispatchBody,
