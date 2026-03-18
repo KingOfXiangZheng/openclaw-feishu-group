@@ -155,6 +155,10 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
           return;
         }
 
+        const botLogLabel = getBotLogName(account.accountId, account.name);
+        const preview = text.replace(/\s+/g, " ").slice(0, 80);
+        params.runtime.log?.(`feishu[${botLogLabel}]: sending reply to ${chatId} (kind=${info?.kind ?? "none"}, len=${text.length}) ${preview}...`);
+
         const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
 
         if ((info?.kind === "block" || info?.kind === "final") && streamingEnabled && useCard) {
@@ -167,6 +171,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         if (streaming?.isActive()) {
           if (info?.kind === "final") {
             streamText = text;
+            params.runtime.log?.(`feishu[${botLogLabel}]: streaming final to ${chatId} (len=${text.length})`);
 
             // Record bot reply BEFORE closeStreaming so that a streaming-close
             // failure does not prevent the entry from being persisted.

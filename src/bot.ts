@@ -43,6 +43,66 @@ function getBotLogName(accountId: string, accountName?: string): string {
   return resolveBotDisplayName(accountId) ?? accountName ?? accountId;
 }
 
+// --- Per-session dispatch lock with message batching ---
+// Prevents OpenClaw from merging concurrent dispatches on the same sessionKey.
+// When multiple messages arrive for the same session while a dispatch is in progress,
+// they are batched together and dispatched as a single combined message.
+const sessionDispatchLocks = new Map<string, Promise<void>>();
+
+interface PendingMessage {
+  senderName: string;
+  body: string;
+  messageId: string;
+  resolve: () => void;
+}
+// Messages waiting to be batched while a dispatch is in progress.
+const pendingBatchMessages = new Map<string, PendingMessage[]>();
+
+// Wraps an async fn with the session lock: waits for previous dispatch to finish,
+// runs fn, then releases the lock for the next waiter.
+async function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
+  let releaseLock: () => void;
+  const lockPromise = new Promise<void>((resolve) => { releaseLock = resolve; });
+  const prev = sessionDispatchLocks.get(sessionKey) ?? Promise.resolve();
+  sessionDispatchLocks.set(sessionKey, lockPromise);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    releaseLock!();
+  }
+}
+
+/**
+ * Try to enqueue a synthetic message for batching.
+ * Returns true if the message was enqueued (caller should NOT dispatch individually).
+ * Returns false if no dispatch is in progress (caller should dispatch normally).
+ */
+function tryEnqueueForBatch(sessionKey: string, msg: Omit<PendingMessage, "resolve">): { enqueued: boolean; waitForBatch?: Promise<void> } {
+  // Only batch if there's an active dispatch (lock is held)
+  const currentLock = sessionDispatchLocks.get(sessionKey);
+  if (!currentLock) {
+    return { enqueued: false };
+  }
+
+  let resolve: () => void;
+  const waitForBatch = new Promise<void>((r) => { resolve = r; });
+  const pending = pendingBatchMessages.get(sessionKey) ?? [];
+  pending.push({ ...msg, resolve: resolve! });
+  pendingBatchMessages.set(sessionKey, pending);
+  return { enqueued: true, waitForBatch };
+}
+
+/**
+ * Drain pending batch messages for a session.
+ * Returns the messages and clears the queue.
+ */
+function drainBatchMessages(sessionKey: string): PendingMessage[] {
+  const pending = pendingBatchMessages.get(sessionKey) ?? [];
+  pendingBatchMessages.delete(sessionKey);
+  return pending;
+}
+
 // --- Permission error extraction ---
 // Extract permission grant URL from Feishu API error response.
 type PermissionError = {
@@ -831,7 +891,7 @@ export async function handleFeishuMessage(params: {
     }
   }
 
-  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received message from ${ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
+  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType})`);
 
   // === Flow log: structured conversation flow tracking ===
   const botName = account.name ?? account.accountId;
@@ -1239,7 +1299,6 @@ export async function handleFeishuMessage(params: {
       body: messageBody,
     });
 
-    let combinedBody = body;
     const historyKey = isGroup ? ctx.chatId : undefined;
 
     // Record user message to shared history (cross-bot)
@@ -1259,107 +1318,8 @@ export async function handleFeishuMessage(params: {
       }
     }
 
-    // Inject cross-bot shared history entries into chatHistories
-    // so they appear inside [Chat messages since your last reply].
-    if (isGroup && historyKey && chatHistories) {
-      // For synthetic events (bot-to-bot relay), we rely primarily on shared history
-      // which is persistent and per-bot. Don't delete chatHistories as it may be
-      // used by other bots processing in parallel.
-      // Instead, we filter based on lastSeen timestamp for this specific bot.
-
-      let sharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
-      const lastSeen = getLastSeenTimestamp(ctx.chatId, account.accountId);
-
-      // For synthetic events, exclude the source bot's latest reply from shared history
-      // because it IS the current message — showing it in history would be a duplicate.
-      if (isSyntheticEvent && syntheticSourceAccountId) {
-        sharedEntries = sharedEntries.filter(e =>
-          !(e.botAccountId === syntheticSourceAccountId || e.sender === syntheticSourceAccountId)
-        );
-      }
-
-      // Build a temporary history map that merges shared history entries with pending history.
-      // We do NOT persist shared entries into chatHistories — they are controlled by
-      // markSharedHistorySeen and must not linger across turns.
-      const tempHistoryMap = new Map(chatHistories);
-      const existing = tempHistoryMap.get(historyKey) ?? [];
-
-      // Filter pending history: remove entries that this bot already saw (via shared history)
-      // and remove entries that overlap with shared history entries.
-      const sharedIds = new Set(sharedEntries.map(e => e.messageId).filter(Boolean));
-      const filteredExisting = existing.filter(e => {
-        // Remove if already in shared history
-        if (e.messageId && sharedIds.has(e.messageId)) return false;
-        // Remove if older than last seen (bot already processed these)
-        if (lastSeen > 0 && e.timestamp <= lastSeen) return false;
-        return true;
-      });
-
-      const mapped = sharedEntries.map(e => {
-        const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
-        const isBot = e.senderType === "bot" || e.sender.startsWith("bot_");
-        const prefix = isBot ? `[Bot]` : `[User]`;
-        const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
-        return {
-          sender: name,
-          body: `${prefix} ${name}: ${readableBody}`,
-          timestamp: e.timestamp,
-          messageId: e.messageId,
-        };
-      });
-
-      const merged = [...mapped, ...filteredExisting].sort((a, b) => a.timestamp - b.timestamp);
-      tempHistoryMap.set(historyKey, merged);
-
-      combinedBody = buildPendingHistoryContextFromMap({
-        historyMap: tempHistoryMap,
-        historyKey,
-        limit: historyLimit,
-        currentMessage: combinedBody,
-        formatEntry: (entry) =>
-          core.channel.reply.formatAgentEnvelope({
-            channel: "Feishu",
-            from: `${ctx.chatId}:${entry.sender}`,
-            timestamp: entry.timestamp,
-            body: entry.body,
-            envelope: envelopeOptions,
-          }),
-      });
-    }
-
-    // Inject available teammates info for bot-to-bot collaboration
-    if (isGroup) {
-      const teammatesInfo = getTeammatesContext(account.accountId, ctx.chatId);
-      if (teammatesInfo) {
-        combinedBody = teammatesInfo + "\n" + combinedBody;
-      }
-    }
-
-    log(`feishu[${getBotLogName(account.accountId, account.name)}]: combinedBody ${combinedBody}`);
-    //log(`feishu[${getBotLogName(account.accountId, account.name)}]: ctx.content ${ctx.content}`);
-    const ctxPayload = core.channel.reply.finalizeInboundContext({
-      Body: combinedBody,
-      RawBody: combinedBody,
-      CommandBody: combinedBody,
-      From: feishuFrom,
-      To: feishuTo,
-      SessionKey: route.sessionKey,
-      AccountId: route.accountId,
-      ChatType: isGroup ? "group" : "direct",
-      GroupSubject: isGroup ? ctx.chatId : undefined,
-      SenderName: ctx.senderName ?? ctx.senderOpenId,
-      SenderId: ctx.senderOpenId,
-      Provider: "feishu" as const,
-      Surface: "feishu" as const,
-      MessageSid: ctx.messageId,
-      Timestamp: Date.now(),
-      WasMentioned: effectiveWasMentioned,
-      CommandAuthorized: commandAuthorized,
-      OriginatingChannel: "feishu" as const,
-      OriginatingTo: feishuTo,
-      ReplyToBody: quotedContent,
-      ...mediaPayload,
-    });
+    // Context (shared history, teammates) is built inside withSessionLock
+    // so that batched bot-to-bot messages are included via shared history.
 
     const { dispatcher, replyOptions, markDispatchIdle } = createFeishuReplyDispatcher({
       cfg,
@@ -1374,30 +1334,159 @@ export async function handleFeishuMessage(params: {
 
     log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatching to agent (session=${route.sessionKey})`);
 
-    const { queuedFinal, counts } = await runWithFeishuToolContext(
-      {
-        channel: "feishu",
-        accountId: account.accountId,
-        sessionKey: route.sessionKey,
-      },
-      // Tool calls produced by this turn should resolve to the same inbound account.
-      () =>
-        core.channel.reply.dispatchReplyFromConfig({
-          ctx: ctxPayload,
-          cfg,
-          dispatcher,
-          replyOptions,
-        }),
-    );
+    // If another dispatch is already running on this session, enqueue this message
+    // for batching instead of waiting in the serial lock queue.
+    // Both user messages and synthetic (bot-to-bot relay) messages are eligible.
+    // Their content is already in shared history (via recordUserMessage / recordBotReply),
+    // so the lock holder will pick them up when it rebuilds context.
+    {
+      const batchResult = tryEnqueueForBatch(route.sessionKey, {
+        senderName: isSyntheticEvent
+          ? (syntheticSourceBot ?? ctx.senderName ?? ctx.senderOpenId)
+          : (ctx.senderName ?? ctx.senderOpenId),
+        body: ctx.content,
+        messageId: ctx.messageId,
+      });
+      if (batchResult.enqueued) {
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: message enqueued for batch (session=${route.sessionKey})`);
+        await batchResult.waitForBatch;
+        // Batched message was dispatched by the lock holder — we're done.
+        markDispatchIdle();
+        if (isGroup && ctx.chatId) {
+          markSharedHistorySeen(ctx.chatId, account.accountId);
+        }
+        return;
+      }
+    }
+
+    const { queuedFinal, counts } = await withSessionLock(route.sessionKey, async () => {
+      log(`feishu[${getBotLogName(account.accountId, account.name)}]: lock acquired (session=${route.sessionKey})`);
+      // Drain any batched messages that arrived while we were waiting for the lock.
+      const batchedMessages = drainBatchMessages(route.sessionKey);
+
+      // Rebuild context inside the lock so that shared history includes
+      // all batched bot replies (they were already written via recordBotReply).
+      // This avoids injecting raw text — every message goes through the
+      // standard shared-history → envelope pipeline.
+      let dispatchBody = body; // start from the formatted envelope of the current message
+
+      if (isGroup && historyKey && chatHistories) {
+        // Re-read shared history (now includes batched bot replies)
+        let freshSharedEntries = getIncrementalSharedHistoryEntries(ctx.chatId, account.accountId, historyLimit, ctx.messageId);
+        const freshLastSeen = getLastSeenTimestamp(ctx.chatId, account.accountId);
+
+        if (isSyntheticEvent && syntheticSourceAccountId) {
+          freshSharedEntries = freshSharedEntries.filter(e =>
+            !(e.botAccountId === syntheticSourceAccountId || e.sender === syntheticSourceAccountId)
+          );
+        }
+
+        const freshTempMap = new Map(chatHistories);
+        const freshExisting = freshTempMap.get(historyKey) ?? [];
+        const freshSharedIds = new Set(freshSharedEntries.map(e => e.messageId).filter(Boolean));
+        const freshFiltered = freshExisting.filter(e => {
+          if (e.messageId && freshSharedIds.has(e.messageId)) return false;
+          if (freshLastSeen > 0 && e.timestamp <= freshLastSeen) return false;
+          return true;
+        });
+
+        const freshMapped = freshSharedEntries.map(e => {
+          const name = resolveBotDisplayName(e.sender) ?? e.senderName ?? e.sender;
+          const isBotEntry = e.senderType === "bot" || e.sender.startsWith("bot_");
+          const prefix = isBotEntry ? `[Bot]` : `[User]`;
+          const readableBody = e.body.replace(/<at\s+user_id="[^"]*">([^<]*)<\/at>/gi, "@$1");
+          return {
+            sender: name,
+            body: `${prefix} ${name}: ${readableBody}`,
+            timestamp: e.timestamp,
+            messageId: e.messageId,
+          };
+        });
+
+        const freshMerged = [...freshMapped, ...freshFiltered].sort((a, b) => a.timestamp - b.timestamp);
+        freshTempMap.set(historyKey, freshMerged);
+
+        dispatchBody = buildPendingHistoryContextFromMap({
+          historyMap: freshTempMap,
+          historyKey,
+          limit: historyLimit,
+          currentMessage: dispatchBody,
+          formatEntry: (entry) =>
+            core.channel.reply.formatAgentEnvelope({
+              channel: "Feishu",
+              from: `${ctx.chatId}:${entry.sender}`,
+              timestamp: entry.timestamp,
+              body: entry.body,
+              envelope: envelopeOptions,
+            }),
+        });
+      }
+
+      if (isGroup) {
+        const freshTeammates = getTeammatesContext(account.accountId, ctx.chatId);
+        if (freshTeammates) {
+          dispatchBody = freshTeammates + "\n" + dispatchBody;
+        }
+      }
+
+      if (batchedMessages.length > 0) {
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: batched ${batchedMessages.length} message(s) into dispatch via shared history`);
+      }
+
+      // Build final payload with fresh context
+      const freshCtxPayload = core.channel.reply.finalizeInboundContext({
+        Body: dispatchBody,
+        RawBody: dispatchBody,
+        CommandBody: dispatchBody,
+        From: feishuFrom,
+        To: feishuTo,
+        SessionKey: route.sessionKey,
+        AccountId: route.accountId,
+        ChatType: isGroup ? "group" : "direct",
+        GroupSubject: isGroup ? ctx.chatId : undefined,
+        SenderName: ctx.senderName ?? ctx.senderOpenId,
+        SenderId: ctx.senderOpenId,
+        Provider: "feishu" as const,
+        Surface: "feishu" as const,
+        MessageSid: ctx.messageId,
+        Timestamp: Date.now(),
+        WasMentioned: effectiveWasMentioned,
+        CommandAuthorized: commandAuthorized,
+        OriginatingChannel: "feishu" as const,
+        OriginatingTo: feishuTo,
+        ReplyToBody: quotedContent,
+        ...mediaPayload,
+      });
+
+      const result = await runWithFeishuToolContext(
+        {
+          channel: "feishu",
+          accountId: account.accountId,
+          sessionKey: route.sessionKey,
+        },
+        () =>
+          core.channel.reply.dispatchReplyFromConfig({
+            ctx: freshCtxPayload,
+            cfg,
+            dispatcher,
+            replyOptions,
+          }),
+      );
+
+      // Resolve all batched message promises so their callers can finish.
+      for (const msg of batchedMessages) {
+        msg.resolve();
+      }
+
+      return result;
+    });
 
     markDispatchIdle();
 
     // Mark shared history as seen so next time we only inject incremental updates.
-    // Only update when the dispatch actually produced a reply (queuedFinal=true).
-    // When queuedFinal=false the message was merged into an already-running session
-    // and this dispatch did not consume any shared history, so advancing the cursor
-    // would incorrectly skip entries that the real dispatch still needs to see.
-    if (isGroup && ctx.chatId && queuedFinal) {
+    // With session lock preventing merges, every dispatch is independent,
+    // so we always advance the cursor.
+    if (isGroup && ctx.chatId) {
       markSharedHistorySeen(ctx.chatId, account.accountId);
     }
 
@@ -1410,6 +1499,28 @@ export async function handleFeishuMessage(params: {
     }
 
     log(`feishu[${getBotLogName(account.accountId, account.name)}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`);
+
+    // Workaround for openclaw/openclaw#32903:
+    // When the agent runs but produces zero replies (e.g. all tool calls failed,
+    // model returned empty), the user receives nothing and thinks the bot is dead.
+    // Send a fallback message so the user knows the bot is alive.
+    // With session lock in place, queuedFinal=false no longer means session merge —
+    // it can only be duplicate skip or send_policy deny, both of which are rare
+    // for a genuinely @mentioned message.
+    if (counts.final === 0 && !isSyntheticEvent && effectiveWasMentioned) {
+      log(`feishu[${getBotLogName(account.accountId, account.name)}]: zero replies detected, sending fallback`);
+      try {
+        await sendMessageFeishu({
+          cfg,
+          to: ctx.chatId,
+          text: "⚠️ 抱歉，我暂时无法处理这条消息，请稍后重试。",
+          replyToMessageId: ctx.messageId,
+          accountId: account.accountId,
+        });
+      } catch (fallbackErr) {
+        log(`feishu[${getBotLogName(account.accountId, account.name)}]: fallback message failed: ${String(fallbackErr)}`);
+      }
+    }
   } catch (err) {
     error(`feishu[${getBotLogName(account.accountId, account.name)}]: failed to dispatch message: ${String(err)}`);
   }
