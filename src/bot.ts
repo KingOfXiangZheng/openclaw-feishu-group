@@ -48,6 +48,8 @@ function getBotLogName(accountId: string, accountName?: string): string {
 // When multiple messages arrive for the same session while a dispatch is in progress,
 // they are batched together and dispatched as a single combined message.
 const sessionDispatchLocks = new Map<string, Promise<void>>();
+// Track which sessions have an active (in-progress) dispatch.
+const activeDispatches = new Set<string>();
 
 interface PendingMessage {
   senderName: string;
@@ -66,22 +68,27 @@ async function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Pro
   const prev = sessionDispatchLocks.get(sessionKey) ?? Promise.resolve();
   sessionDispatchLocks.set(sessionKey, lockPromise);
   await prev;
+  activeDispatches.add(sessionKey);
   try {
     return await fn();
   } finally {
+    activeDispatches.delete(sessionKey);
+    // Clean up the map entry if no new waiter has replaced our promise
+    if (sessionDispatchLocks.get(sessionKey) === lockPromise) {
+      sessionDispatchLocks.delete(sessionKey);
+    }
     releaseLock!();
   }
 }
 
 /**
- * Try to enqueue a synthetic message for batching.
+ * Try to enqueue a message for batching.
  * Returns true if the message was enqueued (caller should NOT dispatch individually).
  * Returns false if no dispatch is in progress (caller should dispatch normally).
  */
 function tryEnqueueForBatch(sessionKey: string, msg: Omit<PendingMessage, "resolve">): { enqueued: boolean; waitForBatch?: Promise<void> } {
-  // Only batch if there's an active dispatch (lock is held)
-  const currentLock = sessionDispatchLocks.get(sessionKey);
-  if (!currentLock) {
+  // Only batch if there's an active dispatch running right now
+  if (!activeDispatches.has(sessionKey)) {
     return { enqueued: false };
   }
 
@@ -857,7 +864,6 @@ export async function handleFeishuMessage(params: {
   const messageId = event.message.message_id;
   const dedupAccountId = accountId || "default";
   if (!tryRecordMessage(messageId, dedupAccountId)) {
-    log(`feishu: skipping duplicate message ${messageId}`);
     return;
   }
 
@@ -891,7 +897,14 @@ export async function handleFeishuMessage(params: {
     }
   }
 
-  log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType}) content: ${ctx.rawContent}`);
+  // In group chats, suppress all logging for messages where this bot is not mentioned.
+  // These are noise — every group message is delivered to every bot in the group.
+  const isGroupSkipCandidate = isGroup && !ctx.mentionedBot && !isSyntheticEvent;
+
+  // Only log received messages when this bot will actually process them.
+  if (!isGroupSkipCandidate) {
+    log(`feishu[${getBotLogName(account.accountId, account.name)}]: received ${isSyntheticEvent ? "relay" : "message"} from ${ctx.senderName ?? ctx.senderOpenId} in ${ctx.chatId} (${ctx.chatType}) content: ${ctx.rawContent}`);
+  }
 
   // === Flow log: structured conversation flow tracking ===
   const botName = account.name ?? account.accountId;
@@ -1077,9 +1090,7 @@ export async function handleFeishuMessage(params: {
         effectiveWasMentioned = mentionGate.effectiveWasMentioned;
 
         if (mentionGate.shouldSkip) {
-          log(
-            `feishu[${getBotLogName(account.accountId, account.name)}]: message in group ${ctx.chatId} skipped (mention required)`,
-          );
+          // Silent skip — no log for non-mentioned bots (reduces noise in multi-bot groups)
           flowReceived({ chatId: ctx.chatId, sender: senderLabel, receiver: botName, type: "skip", content: ctx.content });
           if (chatHistories) {
             // Avoid duplicate entries when multiple bots skip the same message
